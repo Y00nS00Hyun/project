@@ -1,0 +1,11 @@
+{
+  "filename": "hwpx/merged_table.hwpx",
+  "format": "hwpx",
+  "description": "A table whose header cell is merged across all columns, to check merge handling.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_tables": 1,
+    "table_contains": ["구분"],
+    "expect_warnings": ["MERGED_CELLS_PRESENT"]
+  }
+}

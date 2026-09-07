@@ -1,0 +1,6 @@
+{
+  "filename": "hwpx/corrupt.hwpx",
+  "format": "hwpx",
+  "description": "A real HWPX truncated to roughly half its byte length so the ZIP directory is destroyed.",
+  "expect_status": "CORRUPT"
+}

@@ -1,0 +1,17 @@
+{
+  "filename": "hwpx/korean_numbers.hwpx",
+  "format": "hwpx",
+  "description": "Same content as hwp/korean_numbers.hwp.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 3,
+    "contains_text": [
+      "제1조(목적)",
+      "300,000,000원",
+      "2026-01-15",
+      "①②③",
+      "㈜한국",
+      "50.5%"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "filename": "hwp/multi_section.hwp",
+  "format": "hwp",
+  "description": "Two or more document sections (구역), each with distinct text, to verify section ordering.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 4,
+    "min_sections": 2,
+    "ordered_text": ["첫 번째 구역", "두 번째 구역"]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "filename": "hwpx/table.hwpx",
+  "format": "hwpx",
+  "description": "Same content as hwp/table.hwp.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 1,
+    "min_tables": 1,
+    "contains_text": ["2026년 사업계획"],
+    "table_contains": ["부서", "예산", "담당자", "기획조정실", "300000000", "홍길동"],
+    "table_grid": {
+      "table_index": 0,
+      "min_rows": 3,
+      "min_columns": 3,
+      "row_0": ["부서", "예산", "담당자"]
+    }
+  }
+}

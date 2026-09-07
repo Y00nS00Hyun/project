@@ -1,0 +1,12 @@
+{
+  "filename": "hwp/simple_text.hwp",
+  "format": "hwp",
+  "description": "Plain body text only. No tables, no images.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 3,
+    "min_tables": 0,
+    "contains_text": ["2026년 사업계획", "기획조정실"],
+    "ordered_text": ["2026년 사업계획", "기획조정실"]
+  }
+}

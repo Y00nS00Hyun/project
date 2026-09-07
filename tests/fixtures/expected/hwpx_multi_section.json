@@ -1,0 +1,11 @@
+{
+  "filename": "hwpx/multi_section.hwpx",
+  "format": "hwpx",
+  "description": "Two or more sections, same content as hwp/multi_section.hwp.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 4,
+    "min_sections": 2,
+    "ordered_text": ["첫 번째 구역", "두 번째 구역"]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "filename": "hwp/distribution.hwp",
+  "format": "hwp",
+  "description": "Hancom distribution document (배포용 문서). Body lives in encrypted ViewText streams; expected to be classified, not read.",
+  "expect_status": "ENCRYPTED",
+  "expect_error_detail": "DISTRIBUTION_DOCUMENT"
+}

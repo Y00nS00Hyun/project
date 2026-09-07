@@ -1,0 +1,10 @@
+{
+  "filename": "hwp/large_document.hwp",
+  "format": "hwp",
+  "description": "A realistically large internal document (>= 2 MB, hundreds of paragraphs) for the worker-stability and performance check.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 100,
+    "max_parse_time_ms": 30000
+  }
+}

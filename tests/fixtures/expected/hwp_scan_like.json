@@ -1,0 +1,6 @@
+{
+  "filename": "hwp/scan_like.hwp",
+  "format": "hwp",
+  "description": "A document whose pages are full-page scanned images with no text layer.",
+  "expect_status": "OCR_REQUIRED"
+}

@@ -1,0 +1,6 @@
+{
+  "filename": "hwp/encrypted.hwp",
+  "format": "hwp",
+  "description": "Password-protected HWP (한글: 보안 > 문서 암호 설정). Do NOT commit the password anywhere.",
+  "expect_status": "ENCRYPTED"
+}

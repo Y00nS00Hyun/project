@@ -1,0 +1,6 @@
+{
+  "filename": "hwp/corrupt.hwp",
+  "format": "hwp",
+  "description": "A real HWP truncated to roughly half its byte length, or with its BodyText stream damaged.",
+  "expect_status": "CORRUPT"
+}

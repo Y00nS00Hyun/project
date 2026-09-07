@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "document-processing-poc"
+version = "0.1.0"
+description = "HWP/HWPX parsing PoC for the internal document management system"
+requires-python = ">=3.10"
+
+# Runtime dependencies are deliberately minimal.
+# See docs/poc/hwp-poc-report.md section 11 for the license review behind this list.
+dependencies = [
+    "olefile>=0.46",  # BSD-2-Clause. CFB (OLE compound file) reader used by the HWP 5.x parser.
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires real HWP/HWPX fixture files",
+]

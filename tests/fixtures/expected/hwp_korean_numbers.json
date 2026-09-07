@@ -1,0 +1,17 @@
+{
+  "filename": "hwp/korean_numbers.hwp",
+  "format": "hwp",
+  "description": "Korean text, digits, thousands separators, units and punctuation that must survive verbatim.",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 3,
+    "contains_text": [
+      "제1조(목적)",
+      "300,000,000원",
+      "2026-01-15",
+      "①②③",
+      "㈜한국",
+      "50.5%"
+    ]
+  }
+}

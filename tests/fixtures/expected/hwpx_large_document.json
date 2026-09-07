@@ -1,0 +1,10 @@
+{
+  "filename": "hwpx/large_document.hwpx",
+  "format": "hwpx",
+  "description": "A realistically large internal document (>= 2 MB, hundreds of paragraphs).",
+  "expect_status": "SUCCESS",
+  "expected": {
+    "min_paragraphs": 100,
+    "max_parse_time_ms": 30000
+  }
+}
