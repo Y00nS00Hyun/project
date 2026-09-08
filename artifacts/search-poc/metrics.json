@@ -1,0 +1,771 @@
+{
+  "dataset": {
+    "documents": 20,
+    "chunks": 108,
+    "queries": 30,
+    "answerable_queries": 28,
+    "categories": [
+      "department",
+      "exact_title",
+      "keyword",
+      "morphology",
+      "no_answer",
+      "numeric",
+      "partial_match",
+      "semantic",
+      "similar_document",
+      "spacing",
+      "typo",
+      "year"
+    ],
+    "documents_path": "poc/search/fixtures/documents.jsonl",
+    "queries_path": "poc/search/fixtures/queries.jsonl"
+  },
+  "configuration": {
+    "top_k": 10,
+    "embedding_model": "intfloat/multilingual-e5-small",
+    "embedding_note": "PoC only; production model not decided",
+    "rrf_k": 60,
+    "trigram_floor": 0.2,
+    "fts_configuration": "simple",
+    "chunking": "title + sentence baseline; not a chunking decision",
+    "document_aggregation": "best matching chunk"
+  },
+  "methods": [
+    {
+      "method": "fts_simple",
+      "answerable_queries": 28,
+      "recall_at_1": 0.2768,
+      "recall_at_5": 0.3036,
+      "mrr": 0.3214,
+      "ndcg_at_5": 0.3071,
+      "primary_at_1": 0.2857,
+      "primary_at_5": 0.3214,
+      "latency_ms_mean": 0.2732,
+      "latency_ms_p50": 0.206,
+      "latency_ms_p95": 0.411,
+      "no_answer_top_score_mean": 0.0,
+      "answerable_top_score_mean": 0.1326,
+      "per_category": {
+        "department": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.5,
+          "primary_at_1": 0.5
+        },
+        "exact_title": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "keyword": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.5,
+          "primary_at_1": 0.5
+        },
+        "morphology": {
+          "queries": 3,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "primary_at_1": 0.0
+        },
+        "numeric": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.5,
+          "primary_at_1": 0.5
+        },
+        "partial_match": {
+          "queries": 2,
+          "recall_at_1": 0.375,
+          "recall_at_5": 0.75,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7992,
+          "primary_at_1": 0.5
+        },
+        "semantic": {
+          "queries": 4,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "primary_at_1": 0.0
+        },
+        "similar_document": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.5,
+          "primary_at_1": 0.5
+        },
+        "spacing": {
+          "queries": 3,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "primary_at_1": 0.0
+        },
+        "typo": {
+          "queries": 2,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "primary_at_1": 0.0
+        },
+        "year": {
+          "queries": 3,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "primary_at_1": 0.0
+        }
+      }
+    },
+    {
+      "method": "fts_simple_or",
+      "answerable_queries": 28,
+      "recall_at_1": 0.6339,
+      "recall_at_5": 0.8036,
+      "mrr": 0.7619,
+      "ndcg_at_5": 0.7609,
+      "primary_at_1": 0.6786,
+      "primary_at_5": 0.8214,
+      "latency_ms_mean": 0.4309,
+      "latency_ms_p50": 0.371,
+      "latency_ms_p95": 0.695,
+      "no_answer_top_score_mean": 0.1,
+      "answerable_top_score_mean": 0.5304,
+      "per_category": {
+        "department": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 1.0,
+          "mrr": 0.6667,
+          "ndcg_at_5": 0.75,
+          "primary_at_1": 0.5
+        },
+        "exact_title": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "keyword": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 1.0,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.8133,
+          "primary_at_1": 0.5
+        },
+        "morphology": {
+          "queries": 3,
+          "recall_at_1": 0.0,
+          "recall_at_5": 0.3333,
+          "mrr": 0.1667,
+          "ndcg_at_5": 0.2103,
+          "primary_at_1": 0.0
+        },
+        "numeric": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9751,
+          "primary_at_1": 1.0
+        },
+        "partial_match": {
+          "queries": 2,
+          "recall_at_1": 0.375,
+          "recall_at_5": 0.75,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7992,
+          "primary_at_1": 0.5
+        },
+        "semantic": {
+          "queries": 4,
+          "recall_at_1": 0.375,
+          "recall_at_5": 0.5,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.5,
+          "primary_at_1": 0.5
+        },
+        "similar_document": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "spacing": {
+          "queries": 3,
+          "recall_at_1": 0.6667,
+          "recall_at_5": 0.6667,
+          "mrr": 0.6667,
+          "ndcg_at_5": 0.6667,
+          "primary_at_1": 0.6667
+        },
+        "typo": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "year": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        }
+      }
+    },
+    {
+      "method": "trigram",
+      "answerable_queries": 28,
+      "recall_at_1": 0.7589,
+      "recall_at_5": 0.8571,
+      "mrr": 0.8571,
+      "ndcg_at_5": 0.8455,
+      "primary_at_1": 0.8214,
+      "primary_at_5": 0.8571,
+      "latency_ms_mean": 1.2409,
+      "latency_ms_p50": 1.219,
+      "latency_ms_p95": 1.693,
+      "no_answer_top_score_mean": 0.0,
+      "answerable_top_score_mean": 0.7483,
+      "per_category": {
+        "department": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "exact_title": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "keyword": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9536,
+          "primary_at_1": 1.0
+        },
+        "morphology": {
+          "queries": 3,
+          "recall_at_1": 0.6667,
+          "recall_at_5": 0.6667,
+          "mrr": 0.6667,
+          "ndcg_at_5": 0.6667,
+          "primary_at_1": 0.6667
+        },
+        "numeric": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9536,
+          "primary_at_1": 1.0
+        },
+        "partial_match": {
+          "queries": 2,
+          "recall_at_1": 0.375,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9299,
+          "primary_at_1": 0.5
+        },
+        "semantic": {
+          "queries": 4,
+          "recall_at_1": 0.125,
+          "recall_at_5": 0.25,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.25,
+          "primary_at_1": 0.25
+        },
+        "similar_document": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "spacing": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "typo": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "year": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        }
+      }
+    },
+    {
+      "method": "vector",
+      "answerable_queries": 28,
+      "recall_at_1": 0.8661,
+      "recall_at_5": 0.9643,
+      "mrr": 0.9821,
+      "ndcg_at_5": 0.9697,
+      "primary_at_1": 0.9643,
+      "primary_at_5": 1.0,
+      "latency_ms_mean": 39.2283,
+      "latency_ms_p50": 27.872,
+      "latency_ms_p95": 80.25,
+      "no_answer_top_score_mean": 0.8156,
+      "answerable_top_score_mean": 0.9061,
+      "per_category": {
+        "department": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "exact_title": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "keyword": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 0.75,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.8801,
+          "primary_at_1": 1.0
+        },
+        "morphology": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "numeric": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 0.75,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.8801,
+          "primary_at_1": 1.0
+        },
+        "partial_match": {
+          "queries": 2,
+          "recall_at_1": 0.375,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "semantic": {
+          "queries": 4,
+          "recall_at_1": 0.875,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "similar_document": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 1.0,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.8155,
+          "primary_at_1": 0.5
+        },
+        "spacing": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "typo": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "year": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        }
+      }
+    },
+    {
+      "method": "rrf_fts_vector",
+      "answerable_queries": 28,
+      "recall_at_1": 0.8482,
+      "recall_at_5": 0.9643,
+      "mrr": 0.9643,
+      "ndcg_at_5": 0.9547,
+      "primary_at_1": 0.8929,
+      "primary_at_5": 1.0,
+      "latency_ms_mean": 29.236,
+      "latency_ms_p50": 27.202,
+      "latency_ms_p95": 49.721,
+      "no_answer_top_score_mean": 0.0164,
+      "answerable_top_score_mean": 0.0222,
+      "per_category": {
+        "department": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "exact_title": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "keyword": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 0.75,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.7398,
+          "primary_at_1": 0.5
+        },
+        "morphology": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "numeric": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 0.75,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.8801,
+          "primary_at_1": 1.0
+        },
+        "partial_match": {
+          "queries": 2,
+          "recall_at_1": 0.375,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9299,
+          "primary_at_1": 0.5
+        },
+        "semantic": {
+          "queries": 4,
+          "recall_at_1": 0.875,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "similar_document": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 1.0,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.8155,
+          "primary_at_1": 0.5
+        },
+        "spacing": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "typo": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "year": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        }
+      }
+    },
+    {
+      "method": "rrf_fts_trgm_vector",
+      "answerable_queries": 28,
+      "recall_at_1": 0.8482,
+      "recall_at_5": 0.9643,
+      "mrr": 0.9643,
+      "ndcg_at_5": 0.9547,
+      "primary_at_1": 0.8929,
+      "primary_at_5": 1.0,
+      "latency_ms_mean": 30.8212,
+      "latency_ms_p50": 29.127,
+      "latency_ms_p95": 40.67,
+      "no_answer_top_score_mean": 0.0164,
+      "answerable_top_score_mean": 0.0362,
+      "per_category": {
+        "department": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "exact_title": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "keyword": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 0.75,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.7398,
+          "primary_at_1": 0.5
+        },
+        "morphology": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "numeric": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 0.75,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.8801,
+          "primary_at_1": 1.0
+        },
+        "partial_match": {
+          "queries": 2,
+          "recall_at_1": 0.375,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9299,
+          "primary_at_1": 0.5
+        },
+        "semantic": {
+          "queries": 4,
+          "recall_at_1": 0.875,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "similar_document": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 1.0,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.8155,
+          "primary_at_1": 0.5
+        },
+        "spacing": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "typo": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "year": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        }
+      }
+    },
+    {
+      "method": "rrf_fts_trgm",
+      "answerable_queries": 28,
+      "recall_at_1": 0.7411,
+      "recall_at_5": 0.8571,
+      "mrr": 0.8393,
+      "ndcg_at_5": 0.8355,
+      "primary_at_1": 0.7857,
+      "primary_at_5": 0.8571,
+      "latency_ms_mean": 1.4318,
+      "latency_ms_p50": 1.366,
+      "latency_ms_p95": 2.011,
+      "no_answer_top_score_mean": 0.0,
+      "answerable_top_score_mean": 0.0232,
+      "per_category": {
+        "department": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "exact_title": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "keyword": {
+          "queries": 2,
+          "recall_at_1": 0.5,
+          "recall_at_5": 1.0,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.8133,
+          "primary_at_1": 0.5
+        },
+        "morphology": {
+          "queries": 3,
+          "recall_at_1": 0.6667,
+          "recall_at_5": 0.6667,
+          "mrr": 0.6667,
+          "ndcg_at_5": 0.6667,
+          "primary_at_1": 0.6667
+        },
+        "numeric": {
+          "queries": 2,
+          "recall_at_1": 0.75,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9536,
+          "primary_at_1": 1.0
+        },
+        "partial_match": {
+          "queries": 2,
+          "recall_at_1": 0.375,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9299,
+          "primary_at_1": 0.5
+        },
+        "semantic": {
+          "queries": 4,
+          "recall_at_1": 0.125,
+          "recall_at_5": 0.25,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.25,
+          "primary_at_1": 0.25
+        },
+        "similar_document": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "spacing": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "typo": {
+          "queries": 2,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        },
+        "year": {
+          "queries": 3,
+          "recall_at_1": 1.0,
+          "recall_at_5": 1.0,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "primary_at_1": 1.0
+        }
+      }
+    }
+  ]
+}

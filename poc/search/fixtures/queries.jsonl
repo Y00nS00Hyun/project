@@ -1,0 +1,30 @@
+{"query_id": "Q001", "query": "2026년 AI 문서관리 사업계획서", "relevant_documents": ["DOC-002"], "primary_document": "DOC-002", "category": "exact_title", "difficulty": "easy"}
+{"query_id": "Q002", "query": "정보보안팀 시스템 운영지침", "relevant_documents": ["DOC-008"], "primary_document": "DOC-008", "category": "exact_title", "difficulty": "easy"}
+{"query_id": "Q003", "query": "서버 장애 대응 매뉴얼", "relevant_documents": ["DOC-011"], "primary_document": "DOC-011", "category": "exact_title", "difficulty": "easy"}
+{"query_id": "Q004", "query": "문서관리 구축 예산", "relevant_documents": ["DOC-003", "DOC-002"], "primary_document": "DOC-003", "category": "keyword", "difficulty": "medium"}
+{"query_id": "Q006", "query": "정기점검 결과", "relevant_documents": ["DOC-015"], "primary_document": "DOC-015", "category": "keyword", "difficulty": "medium"}
+{"query_id": "Q007", "query": "문서관리시스템 사용자 매뉴얼", "relevant_documents": ["DOC-017"], "primary_document": "DOC-017", "category": "spacing", "difficulty": "medium"}
+{"query_id": "Q008", "query": "개인정보 보호 처리지침", "relevant_documents": ["DOC-010"], "primary_document": "DOC-010", "category": "spacing", "difficulty": "medium"}
+{"query_id": "Q009", "query": "보안사고대응절차", "relevant_documents": ["DOC-012"], "primary_document": "DOC-012", "category": "spacing", "difficulty": "hard"}
+{"query_id": "Q010", "query": "개인정보보호 처리지친", "relevant_documents": ["DOC-010"], "primary_document": "DOC-010", "category": "typo", "difficulty": "hard"}
+{"query_id": "Q011", "query": "서버 장애 대응 매뉴열", "relevant_documents": ["DOC-011"], "primary_document": "DOC-011", "category": "typo", "difficulty": "hard"}
+{"query_id": "Q013", "query": "개인정보", "relevant_documents": ["DOC-010", "DOC-012", "DOC-013", "DOC-014"], "primary_document": "DOC-010", "category": "partial_match", "difficulty": "medium"}
+{"query_id": "Q014", "query": "출장비", "relevant_documents": ["DOC-007", "DOC-006"], "primary_document": "DOC-007", "category": "partial_match", "difficulty": "medium"}
+{"query_id": "Q015", "query": "보안 사고가 발생했을 때 어디로 보고해야 하나", "relevant_documents": ["DOC-012"], "primary_document": "DOC-012", "category": "morphology", "difficulty": "medium"}
+{"query_id": "Q016", "query": "개인정보를 파기하는 절차는 어떻게 되나", "relevant_documents": ["DOC-010"], "primary_document": "DOC-010", "category": "morphology", "difficulty": "medium"}
+{"query_id": "Q017", "query": "서버에 장애가 났을 때의 조치 방법", "relevant_documents": ["DOC-011"], "primary_document": "DOC-011", "category": "morphology", "difficulty": "medium"}
+{"query_id": "Q018", "query": "시스템이 다운되면 누구한테 연락해야 하지?", "relevant_documents": ["DOC-011"], "primary_document": "DOC-011", "category": "semantic", "difficulty": "hard"}
+{"query_id": "Q019", "query": "해킹당하면 어디에 알려야 하나요", "relevant_documents": ["DOC-012"], "primary_document": "DOC-012", "category": "semantic", "difficulty": "hard"}
+{"query_id": "Q020", "query": "직원들 연간 학습 계획이 궁금해", "relevant_documents": ["DOC-013", "DOC-018"], "primary_document": "DOC-013", "category": "semantic", "difficulty": "hard"}
+{"query_id": "Q021", "query": "우리 회사 문서 찾는 프로그램 쓰는 법", "relevant_documents": ["DOC-017"], "primary_document": "DOC-017", "category": "semantic", "difficulty": "hard"}
+{"query_id": "Q022", "query": "2026년 출장 일비", "relevant_documents": ["DOC-007"], "primary_document": "DOC-007", "category": "year", "difficulty": "medium"}
+{"query_id": "Q023", "query": "2025년 AI 문서관리 사업 예산", "relevant_documents": ["DOC-001"], "primary_document": "DOC-001", "category": "year", "difficulty": "medium"}
+{"query_id": "Q024", "query": "2025년 교육 운영계획 예산", "relevant_documents": ["DOC-018"], "primary_document": "DOC-018", "category": "year", "difficulty": "medium"}
+{"query_id": "Q025", "query": "AI플랫폼팀 시스템 운영지침", "relevant_documents": ["DOC-009"], "primary_document": "DOC-009", "category": "department", "difficulty": "medium"}
+{"query_id": "Q026", "query": "재무관리팀이 관리하는 예산 문서", "relevant_documents": ["DOC-003"], "primary_document": "DOC-003", "category": "department", "difficulty": "hard"}
+{"query_id": "Q027", "query": "AI 문서관리 구축 예산 300,000,000원", "relevant_documents": ["DOC-003", "DOC-002"], "primary_document": "DOC-003", "category": "numeric", "difficulty": "medium"}
+{"query_id": "Q028", "query": "서버 증설 120,000,000원", "relevant_documents": ["DOC-003"], "primary_document": "DOC-003", "category": "numeric", "difficulty": "hard"}
+{"query_id": "Q029", "query": "AI 문서관리 사업계획 전사 확대", "relevant_documents": ["DOC-002"], "primary_document": "DOC-002", "category": "similar_document", "difficulty": "hard"}
+{"query_id": "Q030", "query": "교육 운영계획 신입사원 입문 교육", "relevant_documents": ["DOC-018"], "primary_document": "DOC-018", "category": "similar_document", "difficulty": "hard"}
+{"query_id": "Q031", "query": "사내 워케이션 지원금은 얼마인가?", "relevant_documents": [], "primary_document": null, "category": "no_answer", "difficulty": "hard"}
+{"query_id": "Q032", "query": "임직원 자녀 학자금 신청 방법", "relevant_documents": [], "primary_document": null, "category": "no_answer", "difficulty": "hard"}

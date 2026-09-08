@@ -8,6 +8,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Search PoC modules live outside src/ because they are a self-contained experiment.
+sys.path.insert(0, str(ROOT / "poc" / "search"))
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
 EXPECTED_ROOT = FIXTURE_ROOT / "expected"

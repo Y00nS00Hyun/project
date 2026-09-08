@@ -3,3 +3,12 @@ __pycache__/
 .venv/
 .pytest_cache/
 *.egg-info/
+
+# Internal corpus and its raw per-file output must never be committed.
+# See docs/poc/internal-hwp-corpus-report.md section 0.
+internal-corpus/
+artifacts/internal-hwp-poc/
+*.corpus-mapping.json
+
+# Throwaway PostgreSQL cluster for the search PoC
+.search-poc-pgdata/
