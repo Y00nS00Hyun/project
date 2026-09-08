@@ -16,24 +16,7 @@ from psycopg.rows import dict_row
 
 from ingestion.exceptions import PathOutsideRootError
 from ingestion.file_scanner import resolve_source_path
-from search.repository import READ_PERMISSIONS
-
-#: The same permission predicate the search backend uses. Kept textually close
-#: to it so the two cannot drift into different definitions of "may read".
-_ACL_PREDICATE = """
-    EXISTS (
-        SELECT 1
-        FROM document_permissions p
-        LEFT JOIN users u ON u.id = %(user_id)s
-        WHERE p.document_id = d.id
-          AND p.permission = ANY(%(read_permissions)s)
-          AND (
-              p.user_id = %(user_id)s
-              OR (p.department_id IS NOT NULL AND p.department_id = u.department_id)
-          )
-    )
-"""
-
+from search.repository import READ_PERMISSIONS, READ_ACL_PREDICATE as _ACL_PREDICATE
 
 @dataclass(frozen=True)
 class DownloadTarget:

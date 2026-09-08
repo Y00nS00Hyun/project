@@ -1,9 +1,7 @@
 """FastAPI application for the Search / Document API.
 
-Implements the Search and Document half of API Contract v1. Chat/RAG routes are
-defined in the contract but are **not** implemented here and are not stubbed --
-a 501 placeholder would appear in the OpenAPI document and mislead a client
-into thinking the route exists.
+Implements Search, Documents and Chat from API Contract v1. Production LLM
+integration is an explicit dependency; no external provider is configured.
 """
 
 from __future__ import annotations
@@ -21,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .dependencies import app_env, is_production
 from .errors import ApiError
-from .routers import documents, metadata, search
+from .routers import chat, documents, metadata, search
 
 logger = logging.getLogger("api")
 
@@ -57,11 +55,11 @@ def create_app() -> FastAPI:
     docs_url = "/docs" if not is_production() else None
 
     app = FastAPI(
-        title="사내 문서 관리 시스템 — Search / Document API",
+        title="사내 문서 관리 시스템 — Search / Document / Chat API",
         version="1.0.0",
         description=(
-            "API Contract v1의 Search / Document 범위. "
-            "Chat/RAG endpoint는 아직 구현되지 않았다."
+            "API Contract v1의 Search / Document / Chat API. "
+            "LLM provider는 회사 승인 후 주입해야 한다."
         ),
         docs_url=docs_url,
         redoc_url=None,
@@ -74,7 +72,7 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=origins,
             allow_credentials=True,
-            allow_methods=["GET"],
+            allow_methods=["GET", "POST"],
             allow_headers=["*"],
         )
 
@@ -158,6 +156,7 @@ def create_app() -> FastAPI:
     app.include_router(search.router, prefix=API_PREFIX)
     app.include_router(documents.router, prefix=API_PREFIX)
     app.include_router(metadata.router, prefix=API_PREFIX)
+    app.include_router(chat.router, prefix=API_PREFIX)
 
     logger.info("api.started", extra={"env": app_env(), "docs_enabled": docs_url is not None})
     return app

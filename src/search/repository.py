@@ -24,6 +24,21 @@ from psycopg.rows import dict_row
 #: no matching permission row is invisible (default deny).
 READ_PERMISSIONS = ("READ", "WRITE", "ADMIN")
 
+
+READ_ACL_PREDICATE = """
+    EXISTS (
+        SELECT 1
+        FROM document_permissions p
+        LEFT JOIN users u ON u.id = %(user_id)s
+        WHERE p.document_id = d.id
+          AND p.permission = ANY(%(read_permissions)s)
+          AND (
+              p.user_id = %(user_id)s
+              OR (p.department_id IS NOT NULL AND p.department_id = u.department_id)
+          )
+    )
+"""
+
 # ---------------------------------------------------------------------------
 # Eligibility
 #
@@ -35,7 +50,7 @@ READ_PERMISSIONS = ("READ", "WRITE", "ADMIN")
 # expose, so the year filter is applied at candidate-set time rather than after
 # retrieval.
 # ---------------------------------------------------------------------------
-ELIGIBLE_CTE = """
+ELIGIBLE_CTE = f"""
 eligible AS (
     SELECT
         d.id                  AS document_id,
@@ -68,20 +83,7 @@ eligible AS (
     WHERE d.is_deleted = FALSE
       AND d.current_revision_id IS NOT NULL
       AND r.is_ready = TRUE
-      AND EXISTS (
-          SELECT 1
-          FROM document_permissions p
-          LEFT JOIN users u ON u.id = %(user_id)s
-          WHERE p.document_id = d.id
-            AND p.permission = ANY(%(read_permissions)s)
-            AND (
-                p.user_id = %(user_id)s
-                OR (
-                    p.department_id IS NOT NULL
-                    AND p.department_id = u.department_id
-                )
-            )
-      )
+      AND {READ_ACL_PREDICATE}
       AND (%(department_id)s::uuid IS NULL OR d.department_id = %(department_id)s::uuid)
       AND (%(year)s::int IS NULL OR r.document_year = %(year)s::int)
       AND (%(file_type)s::text IS NULL OR d.file_type = %(file_type)s::text)
@@ -305,6 +307,33 @@ class SearchRepository:
         return self._fetch(sql, params)
 
     # -- helpers -----------------------------------------------------------
+
+    def load_context_chunks(
+        self, user_id: str, chunk_ids: Sequence[str], max_chars: int,
+    ) -> list[dict[str, Any]]:
+        """Hydrate already-ranked matches, rechecking the SAME ACL/current CTE.
+
+        This is not a second retrieval/ranking path. RAG needs actual chunk
+        text, not the public 200-character display snippet. Oversized chunks
+        are skipped whole so a truncated sentence cannot become evidence.
+        """
+        if not chunk_ids:
+            return []
+        params = _base_params(user_id, None, None, ())
+        params.update(chunk_ids=list(chunk_ids), max_chars=max_chars)
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(f"""
+                WITH {ELIGIBLE_CTE}
+                SELECT e.document_id, e.revision_id, e.title, e.file_type,
+                       c.id AS chunk_id, c.text, c.paragraph_start,
+                       c.paragraph_end, c.page_number, c.section_title
+                FROM eligible e
+                JOIN chunks c ON c.document_revision_id = e.revision_id
+                WHERE c.id = ANY(%(chunk_ids)s::uuid[])
+                  AND char_length(c.text) <= %(max_chars)s
+                ORDER BY array_position(%(chunk_ids)s::uuid[], c.id)
+            """, params)
+            return [dict(row) for row in cur.fetchall()]
 
     def _fetch(self, sql: str, params: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
         with self.conn.cursor(row_factory=dict_row) as cur:

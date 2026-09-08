@@ -24,6 +24,13 @@ api = [
     "psycopg[binary]>=3.1",
 ]
 
+# Production LLM provider. Optional: the default provider makes no external
+# call at all, and LLM_PROVIDER must explicitly select "anthropic" before this
+# is used. Requires organizational approval before internal documents are sent.
+llm = [
+    "anthropic>=1.4",
+]
+
 # Database migration tooling. Not required by the parser/PoC code.
 db = [
     "alembic>=1.13",

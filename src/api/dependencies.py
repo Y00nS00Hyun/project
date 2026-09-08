@@ -127,3 +127,53 @@ def require_user(request: Request) -> AuthenticatedUser:
 
 
 CurrentUser = Depends(require_user)
+
+
+@lru_cache(maxsize=1)
+def get_llm_provider():
+    """Select the provider explicitly, and only explicitly.
+
+    A credential sitting in the environment is never enough on its own:
+    LLM_PROVIDER has to name the provider before anything leaves the network,
+    so no deployment starts sending internal documents to an external service
+    by accident. An unset selector keeps the default that cannot call out at
+    all. Cached, so the client and its connection pool outlive one request.
+
+    Tests keep using dependency_overrides for a deterministic fake; that path
+    is unchanged and never consults the environment.
+    """
+    from rag.exceptions import ProviderConfigurationError
+    from rag.provider import UnconfiguredProvider
+
+    selected = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    if not selected or selected == "unconfigured":
+        return UnconfiguredProvider()
+    if selected == "anthropic":
+        try:
+            from rag.providers.anthropic_claude import provider_from_env
+        except ImportError:
+            raise ProviderConfigurationError(
+                "LLM_PROVIDER=anthropic needs the 'llm' extra: pip install -e '.[llm]'"
+            ) from None
+        return provider_from_env()
+    raise ProviderConfigurationError(f"LLM_PROVIDER={selected} is not a known provider")
+
+
+def get_chat_repository():
+    from rag.repository import ChatRepository
+    return ChatRepository(connection_factory())
+
+
+def get_chat_service(repository=Depends(get_chat_repository)):
+    from rag.service import ChatService
+    return ChatService(repository)
+
+
+def get_rag_service(
+    search: SearchService = Depends(get_search_service),
+    provider=Depends(get_llm_provider),
+    repository=Depends(get_chat_repository),
+):
+    from rag.context import RagConfig
+    from rag.service import RagService
+    return RagService(repository, search, provider, RagConfig.from_env())

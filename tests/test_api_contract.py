@@ -19,7 +19,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql://unused/unused")
 from api.app import API_PREFIX, create_app  # noqa: E402
 from api.errors import ERROR_CODES  # noqa: E402
 
-#: Exactly the Search / Document scope of API Contract v1.
+#: Exactly all ten method/path pairs in API Contract v1.
 EXPECTED_ROUTES = {
     ("GET", f"{API_PREFIX}/search"),
     ("GET", f"{API_PREFIX}/documents/{{document_id}}"),
@@ -27,6 +27,10 @@ EXPECTED_ROUTES = {
     ("GET", f"{API_PREFIX}/documents/{{document_id}}/download"),
     ("GET", f"{API_PREFIX}/tags"),
     ("GET", f"{API_PREFIX}/departments"),
+    ("POST", f"{API_PREFIX}/chat/sessions"),
+    ("GET", f"{API_PREFIX}/chat/sessions"),
+    ("GET", f"{API_PREFIX}/chat/sessions/{{session_id}}"),
+    ("POST", f"{API_PREFIX}/chat/sessions/{{session_id}}/messages"),
 }
 
 #: Never acceptable anywhere in a response schema.
@@ -60,20 +64,24 @@ class TestRoutes:
         }
         assert actual == EXPECTED_ROUTES
 
-    def test_no_write_methods_exist(self, spec):
-        """The shared folder is the source of truth; the API never modifies it."""
+    def test_only_chat_writes_exist(self, spec):
+        """Chat persistence cannot introduce document/source write endpoints."""
         for path, ops in spec["paths"].items():
             for method in ops:
-                assert method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}, (
+                assert method.upper() not in {"PUT", "PATCH", "DELETE"}, (
                     f"{method.upper()} {path} must not exist"
                 )
+                if method.upper() == 'POST':
+                    assert path.startswith(f'{API_PREFIX}/chat/sessions')
 
     def test_document_delete_route_is_absent(self, spec):
         assert "delete" not in spec["paths"].get(f"{API_PREFIX}/documents/{{document_id}}", {})
 
     def test_chat_routes_are_not_stubbed(self, spec):
-        """Contract defines Chat, but a 501 stub would misrepresent readiness."""
-        assert not [p for p in spec["paths"] if "/chat" in p]
+        for path, ops in spec['paths'].items():
+            if '/chat/' in path:
+                for operation in ops.values():
+                    assert '501' not in operation['responses']
 
     def test_every_route_is_under_the_v1_prefix(self, spec):
         assert all(path.startswith(API_PREFIX) for path in spec["paths"])
@@ -164,3 +172,65 @@ class TestSearchParameters:
                 assert schema.get("minimum") == 1 and schema.get("maximum") == 100
                 return
         pytest.fail("size parameter not declared")
+
+
+class TestChatContract:
+    def test_request_shapes_forbid_client_identity(self, spec):
+        schemas = response_schemas(spec)
+        for name, fields in [('CreateSessionRequest', {'title'}), ('SendMessageRequest', {'message'})]:
+            assert set(schemas[name]['properties']) == fields
+            assert schemas[name]['additionalProperties'] is False
+        assert 'required' not in schemas['CreateSessionRequest']
+        message = schemas['SendMessageRequest']['properties']['message']
+        assert message['minLength'] == 1 and message['maxLength'] == 4000
+
+    def test_response_shapes_match_contract(self, spec):
+        schemas = response_schemas(spec)
+        session = {'session_id', 'title', 'created_at', 'updated_at'}
+        assert set(schemas['SessionOut']['properties']) == session
+        assert set(schemas['SessionDetail']['properties']) == session | {'messages'}
+        assert set(schemas['SessionListItem']['properties']) == session | {'message_count'}
+        assert set(schemas['SendMessageResponse']['properties']) == {
+            'message_id', 'answer', 'refused', 'sources', 'created_at',
+        }
+        assert schemas['SendMessageResponse']['properties']['refused']['type'] == 'boolean'
+        assert schemas['AssistantMessage']['properties']['refused']['type'] == 'boolean'
+        assert schemas['AssistantMessage']['properties']['content_hidden']['type'] == 'boolean'
+
+    def test_sources_omit_inaccessible_metadata_and_reuse_anchor(self, spec):
+        schemas = response_schemas(spec)
+        ids = {'document_id', 'revision_id', 'chunk_id', 'accessible'}
+        assert set(schemas['InaccessibleSource']['properties']) == ids
+        assert set(schemas['AccessibleSource']['properties']) == ids | {
+            'title', 'file_type', 'section_title', 'anchor',
+        }
+        anchor = schemas['AccessibleSource']['properties']['anchor']
+        assert anchor['discriminator']['propertyName'] == 'type'
+        assert set(anchor['discriminator']['mapping']) == {'paragraph', 'page', 'none'}
+
+    def test_status_codes_pagination_and_common_error_schemas(self, spec):
+        for path, methods in spec['paths'].items():
+            if '/chat/' not in path:
+                continue
+            for method, operation in methods.items():
+                assert ('201' if method == 'post' else '200') in operation['responses']
+                for status in ('401', '404', '422', '500'):
+                    schema = operation['responses'][status]['content']['application/json']['schema']
+                    assert schema['$ref'].endswith('/ErrorResponse')
+        for path, default in [('/api/v1/chat/sessions', 20), ('/api/v1/chat/sessions/{session_id}', 50)]:
+            params = spec['paths'][path]['get']['parameters']
+            size = next(p['schema'] for p in params if p['name'] == 'size')
+            assert size['default'] == default and size['maximum'] == 100
+
+    def test_rate_limited_is_declared_only_where_a_provider_is_reached(self, spec):
+        """RATE_LIMITED is an existing contract code, not a new one."""
+        assert ERROR_CODES["RATE_LIMITED"] == 429
+        messages = f'{API_PREFIX}/chat/sessions/{{session_id}}/messages'
+        for path, methods in spec['paths'].items():
+            if '/chat/' not in path and not path.endswith('/chat/sessions'):
+                continue
+            for method, operation in methods.items():
+                declared = '429' in operation['responses']
+                assert declared == (path == messages and method == 'post'), f'{method} {path}'
+        schema = spec['paths'][messages]['post']['responses']['429']
+        assert schema['content']['application/json']['schema']['$ref'].endswith('/ErrorResponse')
