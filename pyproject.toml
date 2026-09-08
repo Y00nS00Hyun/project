@@ -17,6 +17,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
+# Database migration tooling. Not required by the parser/PoC code.
+db = [
+    "alembic>=1.13",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

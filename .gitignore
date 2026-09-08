@@ -18,3 +18,6 @@ artifacts/internal-hwp-poc/
 artifacts/chunking-embedding-poc/*.npy
 artifacts/chunking-embedding-poc/*.npz
 artifacts/chunking-embedding-poc/*.safetensors
+
+# Throwaway PostgreSQL cluster for migration tests
+.migration-test-pgdata/
