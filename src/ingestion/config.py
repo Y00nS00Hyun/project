@@ -30,9 +30,26 @@ DEFAULT_CHUNK_OVERLAP = 0
 #: distinguishable. Bump this whenever chunking behaviour changes.
 DEFAULT_CHUNKING_VERSION = "paragraph-v1-64t-o0"
 
-#: Tokenizer used only to *count* tokens. No model weights are loaded during
-#: ingestion (Design Freeze: embedding is a later stage).
+#: Tokenizer used only to *count* tokens during chunking.
 DEFAULT_TOKENIZER_NAME = "intfloat/multilingual-e5-small"
+
+# ---------------------------------------------------------------------------
+# Embedding defaults (Design Freeze v1)
+# ---------------------------------------------------------------------------
+
+#: Local model. No embedding SaaS, no inference API.
+DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
+
+#: Pinned so a silently updated upstream model cannot change vectors under a
+#: corpus that was already embedded. Override only with a deliberate reindex.
+DEFAULT_EMBEDDING_MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+
+#: Must equal chunks.embedding VECTOR(384). Validated at construction.
+REQUIRED_EMBEDDING_DIMENSION = 384
+
+DEFAULT_EMBEDDING_PROVIDER = "local"
+DEFAULT_EMBEDDING_DEVICE = "cpu"
+DEFAULT_EMBEDDING_BATCH_SIZE = 8
 
 #: Extensions the schema's documents.file_type CHECK accepts. Anything else is
 #: not a document as far as this system is concerned and is not discovered.
@@ -56,6 +73,15 @@ class IngestionConfig:
     chunking_version: str = DEFAULT_CHUNKING_VERSION
     tokenizer_name: str = DEFAULT_TOKENIZER_NAME
 
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_model_revision: str | None = DEFAULT_EMBEDDING_MODEL_REVISION
+    embedding_dimension: int = REQUIRED_EMBEDDING_DIMENSION
+    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER
+    embedding_device: str = DEFAULT_EMBEDDING_DEVICE
+    embedding_batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE
+    embedding_cache_dir: str | None = None
+    embedding_allow_download: bool = False
+
     follow_symlinks: bool = False
     missing_grace_seconds: int = DEFAULT_MISSING_GRACE_SECONDS
     discoverable_extensions: tuple[str, ...] = field(default=DISCOVERABLE_EXTENSIONS)
@@ -73,6 +99,17 @@ class IngestionConfig:
             raise ConfigurationError("chunk_overlap must be smaller than chunk_max_tokens")
         if self.missing_grace_seconds < 0:
             raise ConfigurationError("missing_grace_seconds must be >= 0")
+        if self.embedding_dimension != REQUIRED_EMBEDDING_DIMENSION:
+            # The column is VECTOR(384). Letting configuration disagree with the
+            # schema would fail per-row at write time, deep inside a batch,
+            # instead of at startup.
+            raise ConfigurationError(
+                f"embedding_dimension must be {REQUIRED_EMBEDDING_DIMENSION} to match "
+                f"chunks.embedding VECTOR({REQUIRED_EMBEDDING_DIMENSION}), "
+                f"got {self.embedding_dimension}"
+            )
+        if self.embedding_batch_size < 1:
+            raise ConfigurationError("embedding_batch_size must be >= 1")
         if self.follow_symlinks:
             # Allowed, but the caller is opting out of the escape protection
             # that keeps a scan inside the shared root.
@@ -116,6 +153,16 @@ def config_from_env(shared_root: Path | str | None = None) -> IngestionConfig:
         chunk_overlap=_int_env("CHUNK_OVERLAP", DEFAULT_CHUNK_OVERLAP),
         chunking_version=os.environ.get("CHUNKING_VERSION", DEFAULT_CHUNKING_VERSION),
         tokenizer_name=os.environ.get("EMBEDDING_TOKENIZER", DEFAULT_TOKENIZER_NAME),
+        embedding_model=os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        embedding_model_revision=os.environ.get(
+            "EMBEDDING_MODEL_REVISION", DEFAULT_EMBEDDING_MODEL_REVISION
+        ) or None,
+        embedding_dimension=_int_env("EMBEDDING_DIMENSION", REQUIRED_EMBEDDING_DIMENSION),
+        embedding_device=os.environ.get("EMBEDDING_DEVICE", DEFAULT_EMBEDDING_DEVICE),
+        embedding_batch_size=_int_env("EMBEDDING_BATCH_SIZE", DEFAULT_EMBEDDING_BATCH_SIZE),
+        embedding_cache_dir=os.environ.get("EMBEDDING_CACHE_DIR") or None,
+        embedding_allow_download=os.environ.get("EMBEDDING_ALLOW_DOWNLOAD", "").lower()
+        in {"1", "true", "yes"},
         follow_symlinks=os.environ.get("SCAN_FOLLOW_SYMLINKS", "").lower() in {"1", "true", "yes"},
         missing_grace_seconds=_int_env("MISSING_GRACE_SECONDS", DEFAULT_MISSING_GRACE_SECONDS),
     )

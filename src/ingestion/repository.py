@@ -18,8 +18,10 @@ from typing import Any, Iterable, Sequence
 import psycopg
 from psycopg.rows import dict_row
 
-#: processing_jobs.job_type value for the parsing stage.
+#: processing_jobs.job_type values used by ingestion. Both come from the
+#: schema CHECK; no new job types are invented.
 JOB_TYPE_PARSE = "PARSE"
+JOB_TYPE_EMBED = "EMBED"
 
 #: Statuses that make a job "active"; matches the uq_jobs_active partial index.
 ACTIVE_JOB_STATUSES = ("PENDING", "RUNNING")
@@ -315,6 +317,170 @@ class IngestionRepository:
             )
 
     # -- processing jobs ---------------------------------------------------
+
+    def enqueue_embed_job(self, revision_id: str) -> str | None:
+        """Queue an EMBED job for a revision that actually has body text.
+
+        Guarded twice: the WHERE clause refuses revisions that were not parsed
+        into text or are already embedded, and the schema's uq_jobs_active
+        partial unique index refuses a second active job for the same revision.
+        A repeated scan, a parse retry and two concurrent workers therefore all
+        converge on one job.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO processing_jobs (document_revision_id, job_type, status)
+                SELECT r.id, %s, 'PENDING'
+                FROM document_revisions r
+                WHERE r.id = %s
+                  AND r.parse_status = 'SUCCESS'
+                  AND r.parse_result_code = 'TEXT_EXTRACTED'
+                  AND r.embedding_status = 'PENDING'
+                ON CONFLICT DO NOTHING
+                RETURNING id
+                """,
+                (JOB_TYPE_EMBED, revision_id),
+            )
+            row = cur.fetchone()
+            return str(row[0]) if row else None
+
+    def claim_embed_jobs(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Take PENDING EMBED jobs and mark them RUNNING.
+
+        Same FOR UPDATE SKIP LOCKED pattern as PARSE: several workers share the
+        queue without a distributed lock and never receive the same job twice.
+        """
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                UPDATE processing_jobs
+                SET status = 'RUNNING',
+                    attempt_count = attempt_count + 1,
+                    started_at = now()
+                WHERE id IN (
+                    SELECT id FROM processing_jobs
+                    WHERE job_type = %s AND status = 'PENDING'
+                      AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+                      AND attempt_count < max_attempts
+                    ORDER BY created_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT %s
+                )
+                RETURNING id, document_revision_id, attempt_count, max_attempts
+                """,
+                (JOB_TYPE_EMBED, limit),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def chunks_for_embedding(self, revision_id: str) -> list[dict[str, Any]]:
+        """Chunk ids and text of a revision, in stable order."""
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, chunk_index, text
+                FROM chunks
+                WHERE document_revision_id = %s
+                ORDER BY chunk_index
+                """,
+                (revision_id,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def clear_chunk_embeddings(self, revision_id: str) -> None:
+        """Drop any existing vectors for a revision.
+
+        Called at the start of a write so a retry cannot leave vectors from an
+        earlier model or an earlier partial run mixed in with the new ones.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE chunks SET embedding = NULL WHERE document_revision_id = %s",
+                (revision_id,),
+            )
+
+    def save_chunk_embeddings(self, revision_id: str, vectors: Sequence[tuple[str, str]]) -> int:
+        """Write every chunk vector. Caller supplies (chunk_id, pgvector literal)."""
+        with self.conn.cursor() as cur:
+            cur.executemany(
+                "UPDATE chunks SET embedding = %s::vector WHERE id = %s "
+                "AND document_revision_id = %s",
+                [(literal, chunk_id, revision_id) for chunk_id, literal in vectors],
+            )
+            return len(vectors)
+
+    def save_embedding_result(
+        self,
+        *,
+        revision_id: str,
+        status: str,
+        provider: str | None = None,
+        model: str | None = None,
+        dimension: int | None = None,
+        version: str | None = None,
+    ) -> None:
+        """Set embedding_status and, on success, the provenance columns.
+
+        is_ready is a generated column and is never written here: PostgreSQL
+        recomputes it from parse_status + parse_result_code + embedding_status.
+        Keeping a second READY flag in application code would let the two drift.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE document_revisions
+                SET embedding_status = %s,
+                    embedding_provider = %s,
+                    embedding_model = %s,
+                    embedding_dimension = %s,
+                    embedding_version = %s,
+                    embedded_at = CASE WHEN %s = 'SUCCESS' THEN now() ELSE embedded_at END
+                WHERE id = %s
+                """,
+                (status, provider, model, dimension, version, status, revision_id),
+            )
+
+    def promote_current_revision(self, document_id: str) -> str | None:
+        """Point documents.current_revision_id at the newest READY revision.
+
+        Not "the revision that just finished": embedding jobs complete out of
+        order, so a slow revision 1 finishing after a fast revision 2 must not
+        drag current back to 1. The newest READY revision is a property of the
+        document, not of whichever worker happened to finish last.
+
+        The document row is locked first so two concurrent promotions for the
+        same document serialise instead of racing to a stale value.
+
+        Returns the promoted revision id, or None if nothing is READY yet.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT id FROM documents WHERE id = %s FOR UPDATE", (document_id,))
+            if cur.fetchone() is None:
+                return None
+
+            cur.execute(
+                """
+                SELECT id FROM document_revisions
+                WHERE document_id = %s AND is_ready = TRUE
+                ORDER BY revision_no DESC
+                LIMIT 1
+                """,
+                (document_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            revision_id = str(row[0])
+
+            cur.execute(
+                """
+                UPDATE documents
+                SET current_revision_id = %s, updated_at = now()
+                WHERE id = %s AND current_revision_id IS DISTINCT FROM %s
+                """,
+                (revision_id, document_id, revision_id),
+            )
+            return revision_id
 
     def enqueue_parse_job(self, revision_id: str) -> str | None:
         """Create a PENDING PARSE job unless one is already active.

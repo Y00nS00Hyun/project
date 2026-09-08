@@ -159,10 +159,15 @@ class TestTextExtracted:
         builders.write_hwpx(shared_root / "a.hwpx", text="본문입니다.")
         pipeline()
         with conn.cursor() as cur:
-            cur.execute("SELECT status, result_code, finished_at FROM processing_jobs")
+            cur.execute(
+                "SELECT status, result_code, finished_at FROM processing_jobs "
+                "WHERE job_type = 'PARSE'"
+            )
             status, result_code, finished_at = cur.fetchone()
         assert (status, result_code) == ("SUCCESS", "TEXT_EXTRACTED")
         assert finished_at is not None
+        # Parsing hands off to the embedding stage in the same transaction.
+        assert scalar(conn, "SELECT count(*) FROM processing_jobs WHERE job_type='EMBED'") == 1
 
     def test_table_structure_is_preserved_in_parsed_structure(self, pipeline, conn, shared_root):
         section = builders.MINIMAL_SECTION_XML.replace(
@@ -436,14 +441,16 @@ class TestFailureIsolation:
 
         # The transient problem clears; the job goes back on the queue.
         monkeypatch.undo()
-        job_id = scalar(conn, "SELECT id FROM processing_jobs")
+        job_id = scalar(conn, "SELECT id FROM processing_jobs WHERE job_type='PARSE'")
         with psycopg.connect(pgtest.psycopg_url(conn.info.dsn), autocommit=True) as c:
             IngestionRepository(c).reset_job_for_retry(str(job_id))
 
         IngestionService(connection_factory, config, tokenizer=SimpleTokenizer()).process_pending()
         state = revision_state(conn)
         assert state["parse_result_code"] == "TEXT_EXTRACTED"
-        assert scalar(conn, "SELECT status FROM processing_jobs") == "SUCCESS"
+        assert scalar(
+            conn, "SELECT status FROM processing_jobs WHERE job_type='PARSE'"
+        ) == "SUCCESS"
 
 
 class TestIdempotency:

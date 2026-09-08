@@ -14,6 +14,17 @@ from __future__ import annotations
 from .chunker import Chunk, chunk_document
 from .config import IngestionConfig, config_from_env, database_url
 from .document_year import extract_document_year, year_for_file
+from .embedding import (
+    PASSAGE_PREFIX,
+    QUERY_PREFIX,
+    EmbeddingModel,
+    EmbeddingModelUnavailableError,
+    LocalE5Model,
+    VectorValidationError,
+    to_pgvector,
+    validate_vector,
+)
+from .embedding_service import EmbeddingRunResult, EmbeddingService
 from .exceptions import (
     ConfigurationError,
     FileUnstableError,
@@ -29,7 +40,15 @@ from .sync_service import ScanResult, SyncService
 from .tokenizers import HuggingFaceTokenizer, SimpleTokenizer, Tokenizer
 
 __all__ = [
+    "PASSAGE_PREFIX",
+    "QUERY_PREFIX",
     "Chunk",
+    "EmbeddingModel",
+    "EmbeddingModelUnavailableError",
+    "EmbeddingRunResult",
+    "EmbeddingService",
+    "LocalE5Model",
+    "VectorValidationError",
     "ConfigurationError",
     "DiscoveredFile",
     "FileFingerprint",
@@ -54,5 +73,7 @@ __all__ = [
     "fingerprint",
     "resolve_source_path",
     "scan_files",
+    "to_pgvector",
+    "validate_vector",
     "year_for_file",
 ]

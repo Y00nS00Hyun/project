@@ -196,6 +196,12 @@ class IngestionService:
                 # Only TEXT_EXTRACTED is chunked. Everything else has no body
                 # text to chunk, and writing empty chunks would pollute search.
                 written = repo.replace_chunks(revision_id, chunks)
+                if result_code == RESULT_TEXT_EXTRACTED:
+                    # Hand off to the embedding stage in the same transaction,
+                    # so a crash between "chunks written" and "job queued"
+                    # cannot strand a revision with nothing scheduled to embed
+                    # it. The model is NOT invoked here.
+                    repo.enqueue_embed_job(revision_id)
                 repo.finish_job(
                     str(job["id"]),
                     status="SUCCESS" if parse_status == "SUCCESS" else "FAILED",

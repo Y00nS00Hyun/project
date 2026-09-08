@@ -2,6 +2,7 @@
 
     python -m ingestion sync    --root /tmp/shared-test
     python -m ingestion parse   --root /tmp/shared-test
+    python -m ingestion embed   --root /tmp/shared-test
     python -m ingestion run     --root /tmp/shared-test
 
 This exists so the pipeline can be driven by hand and by integration tests. It
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from .config import IngestionConfig, config_from_env, database_url
 from .exceptions import ConfigurationError
+from .embedding_service import EmbeddingService
 from .ingestion_service import IngestionService, default_connection_factory
 from .sync_service import SyncService
 from .tokenizers import HuggingFaceTokenizer, SimpleTokenizer
@@ -54,11 +56,14 @@ def make_tokenizer(args, config: IngestionConfig):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ingestion", description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["sync", "parse", "run"],
-                        help="sync = discover files; parse = process PARSE jobs; run = both")
+    parser.add_argument(
+        "command", choices=["sync", "parse", "embed", "run"],
+        help="sync = discover files; parse = process PARSE jobs; "
+             "embed = process EMBED jobs; run = all three",
+    )
     parser.add_argument("--root", type=Path, default=None,
                         help="shared folder root (defaults to $SHARED_ROOT)")
-    parser.add_argument("--limit", type=int, default=100, help="max PARSE jobs per run")
+    parser.add_argument("--limit", type=int, default=100, help="max jobs per stage")
     parser.add_argument("--missing-grace-seconds", type=int, default=None,
                         help="override the grace period before a missing file is soft-deleted")
     parser.add_argument("--simple-tokenizer", action="store_true",
@@ -88,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"parse", "run"}:
         service = IngestionService(factory, config, tokenizer=make_tokenizer(args, config))
         output["parse"] = service.process_pending(args.limit).as_dict()
+
+    if args.command in {"embed", "run"}:
+        # Loads the local model once for the whole batch.
+        output["embed"] = EmbeddingService(factory, config).process_pending(args.limit).as_dict()
 
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
