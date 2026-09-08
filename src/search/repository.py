@@ -46,6 +46,18 @@ eligible AS (
         dep.name              AS department_name,
         d.updated_at          AS updated_at,
         r.document_year       AS document_year,
+        r.revision_no         AS revision_no,
+        r.created_at          AS revision_created_at,
+        -- API Contract has_newer_revision: a newer revision exists but is not
+        -- yet READY, so search is still serving the current one.
+        (d.latest_revision_id IS DISTINCT FROM d.current_revision_id) AS has_newer_revision,
+        COALESCE((
+            SELECT jsonb_agg(jsonb_build_object('id', t.id, 'name', t.name)
+                             ORDER BY t.name, t.id)
+            FROM document_tags dt
+            JOIN tags t ON t.id = dt.tag_id
+            WHERE dt.document_id = d.id
+        ), '[]'::jsonb) AS tags,
         r.extracted_text      AS extracted_text
     FROM documents d
     JOIN document_revisions r
@@ -72,6 +84,7 @@ eligible AS (
       )
       AND (%(department_id)s::uuid IS NULL OR d.department_id = %(department_id)s::uuid)
       AND (%(year)s::int IS NULL OR r.document_year = %(year)s::int)
+      AND (%(file_type)s::text IS NULL OR d.file_type = %(file_type)s::text)
       AND (
           %(tag_count)s = 0
           OR (
@@ -87,7 +100,8 @@ eligible AS (
 #: Columns every result row carries, so the three paths stay interchangeable.
 _DOCUMENT_COLUMNS = """
     e.document_id, e.revision_id, e.title, e.file_type,
-    e.department_id, e.department_name, e.updated_at, e.document_year
+    e.department_id, e.department_name, e.updated_at, e.document_year,
+    e.revision_no, e.revision_created_at, e.has_newer_revision, e.tags
 """
 
 
@@ -96,12 +110,14 @@ def _base_params(
     department_id: str | None,
     year: int | None,
     tag_ids: Sequence[int],
+    file_type: str | None = None,
 ) -> dict[str, Any]:
     return {
         "user_id": user_id,
         "read_permissions": list(READ_PERMISSIONS),
         "department_id": department_id,
         "year": year,
+        "file_type": file_type,
         "tag_ids": list(tag_ids),
         "tag_count": len(set(tag_ids)),
     }
@@ -122,6 +138,7 @@ class SearchRepository:
         department_id: str | None,
         year: int | None,
         tag_ids: Sequence[int],
+        file_type: str | None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -147,7 +164,7 @@ class SearchRepository:
         ORDER BY e.updated_at DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids)
+        params = _base_params(user_id, department_id, year, tag_ids, file_type)
         params.update({"limit": limit, "offset": offset})
         return self._fetch(sql, params)
 
@@ -161,6 +178,7 @@ class SearchRepository:
         department_id: str | None,
         year: int | None,
         tag_ids: Sequence[int],
+        file_type: str | None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -207,7 +225,7 @@ class SearchRepository:
         ORDER BY s.score DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids)
+        params = _base_params(user_id, department_id, year, tag_ids, file_type)
         params.update({"query_vector": query_vector, "limit": limit, "offset": offset})
         return self._fetch(sql, params)
 
@@ -222,6 +240,7 @@ class SearchRepository:
         department_id: str | None,
         year: int | None,
         tag_ids: Sequence[int],
+        file_type: str | None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -281,7 +300,7 @@ class SearchRepository:
         ORDER BY m.score DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids)
+        params = _base_params(user_id, department_id, year, tag_ids, file_type)
         params.update({"query_text": query_text, "limit": limit, "offset": offset})
         return self._fetch(sql, params)
 

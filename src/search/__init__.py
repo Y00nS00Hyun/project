@@ -24,6 +24,7 @@ from .models import (
     SearchMode,
     SearchRequest,
     SearchResult,
+    Tag,
     make_snippet,
 )
 from .query_embedding import LocalQueryEmbedder, QueryEmbedder
@@ -47,6 +48,7 @@ __all__ = [
     "SearchRequest",
     "SearchResult",
     "SearchService",
+    "Tag",
     "SemanticSearchUnavailableError",
     "make_snippet",
 ]

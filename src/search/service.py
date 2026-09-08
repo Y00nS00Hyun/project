@@ -21,6 +21,7 @@ from .models import (
     SearchMode,
     SearchRequest,
     SearchResult,
+    Tag,
     make_snippet,
 )
 from .query_embedding import LocalQueryEmbedder
@@ -110,6 +111,7 @@ class SearchService:
             "department_id": request.department_id,
             "year": request.year,
             "tag_ids": request.tag_ids,
+            "file_type": request.file_type,
             "limit": request.size,
             "offset": request.offset,
         }
@@ -141,6 +143,9 @@ class SearchService:
                 snippet=make_snippet(row["chunk_text"] or ""),
             )
         score = row.get("score")
+        tags = tuple(
+            Tag(id=int(t["id"]), name=t["name"]) for t in (row.get("tags") or [])
+        )
         return DocumentResult(
             document_id=str(row["document_id"]),
             revision_id=str(row["revision_id"]),
@@ -150,6 +155,10 @@ class SearchService:
             department_name=row["department_name"],
             year=row["document_year"],
             updated_at=row["updated_at"],
+            revision_no=row.get("revision_no"),
+            revision_created_at=row.get("revision_created_at"),
+            has_newer_revision=bool(row.get("has_newer_revision")),
+            tags=tags,
             matched_chunk=matched,
             retrieval_score=float(score) if score is not None else None,
         )

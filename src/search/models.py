@@ -17,6 +17,10 @@ from .exceptions import InvalidSearchModeError, InvalidSearchRequestError
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 
+#: documents.file_type CHECK domain. Lower case, matching the column and the
+#: API contract -- translating case here would create two vocabularies.
+FILE_TYPES = ("hwp", "hwpx", "docx", "pdf")
+
 #: How much of the matched chunk is returned as a snippet. Enough to show
 #: context, short enough that a result list is not a bulk content export.
 SNIPPET_MAX_CHARS = 200
@@ -65,6 +69,7 @@ class SearchRequest:
     department_id: str | None = None
     year: int | None = None
     tag_ids: tuple[int, ...] = ()
+    file_type: str | None = None
 
     page: int = 1
     size: int = DEFAULT_PAGE_SIZE
@@ -78,6 +83,10 @@ class SearchRequest:
             raise InvalidSearchRequestError(f"size must be between 1 and {MAX_PAGE_SIZE}")
         if self.year is not None and not (1900 <= self.year <= 2100):
             raise InvalidSearchRequestError("year must be between 1900 and 2100")
+        if self.file_type is not None and self.file_type not in FILE_TYPES:
+            raise InvalidSearchRequestError(
+                f"file_type must be one of {', '.join(FILE_TYPES)}"
+            )
 
     @property
     def normalized_query(self) -> str | None:
@@ -111,6 +120,12 @@ class MatchedChunk:
 
 
 @dataclass(frozen=True)
+class Tag:
+    id: int
+    name: str
+
+
+@dataclass(frozen=True)
 class DocumentResult:
     """One document in a result page."""
 
@@ -122,6 +137,13 @@ class DocumentResult:
     department_name: str | None
     year: int | None
     updated_at: datetime
+
+    revision_no: int | None = None
+    revision_created_at: datetime | None = None
+    #: A newer revision exists but is not READY yet, so search still serves the
+    #: current one. Not a staleness warning.
+    has_newer_revision: bool = False
+    tags: tuple[Tag, ...] = ()
 
     matched_chunk: MatchedChunk | None = None
 
