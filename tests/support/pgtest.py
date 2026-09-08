@@ -75,3 +75,57 @@ def check_extensions_available(server) -> list[str]:
         cur.execute("SELECT name FROM pg_available_extensions")
         available = {r[0] for r in cur.fetchall()}
     return [e for e in REQUIRED_EXTENSIONS if e not in available]
+
+# ---------------------------------------------------------------------------
+# Migrated databases
+# ---------------------------------------------------------------------------
+
+#: Application tables created by the initial migration, in an order that is safe
+#: to TRUNCATE together (CASCADE handles the rest).
+APPLICATION_TABLES = (
+    "chat_message_sources", "chat_messages", "chat_sessions",
+    "recent_views", "favorites", "revision_tags", "document_tags", "tags",
+    "processing_jobs", "document_permissions", "chunks",
+    "document_revisions", "documents", "users", "departments", "audit_logs",
+)
+
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def run_alembic(url: str, *args: str):
+    """Run alembic against ``url``. Returns the CompletedProcess."""
+    import subprocess
+    import sys
+
+    env = dict(os.environ, DATABASE_URL=url)
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", *args],
+        cwd=repo_root(), env=env, capture_output=True, text=True,
+    )
+
+
+def migrated_database(server, dbname: str) -> str:
+    """Create ``dbname`` and bring it to head with the real migration.
+
+    Tests run against the production schema, never a hand-written subset.
+    """
+    url = create_database(server, dbname)
+    result = run_alembic(url, "upgrade", "head")
+    if result.returncode != 0:
+        raise RuntimeError(f"alembic upgrade failed:\n{result.stderr}")
+    return url
+
+
+def truncate_all(conn) -> None:
+    """Empty every application table, leaving the schema intact.
+
+    Much faster than re-migrating per test, and keeps tests independent.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "TRUNCATE TABLE "
+            + ", ".join(APPLICATION_TABLES)
+            + " RESTART IDENTITY CASCADE"
+        )
