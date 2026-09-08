@@ -1,0 +1,10 @@
+# Versions used by the measured CPU run. Install the CPU torch wheel first
+# using the command in README-chunking-embedding.md.
+torch==2.14.0+cpu
+sentence-transformers==6.0.1
+transformers==5.16.1
+tokenizers==0.23.2
+huggingface-hub==1.30.0
+numpy==2.2.6
+psycopg[binary]==3.3.5
+pgserver==0.1.4

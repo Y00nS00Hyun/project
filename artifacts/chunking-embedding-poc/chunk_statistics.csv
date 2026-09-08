@@ -1,0 +1,10 @@
+configuration,strategy,size,model,chunk_count,chunks_per_document_mean,tokens_mean,tokens_p50,tokens_p95,tokens_min,tokens_max,table_chunks,tiny_chunks_lt_16,oversize_chunks
+C1,fixed,64,e5-small,34,1.7,42.76470588235294,61.0,64.0,3,64,0,8,0
+C2,paragraph,64,e5-small,34,1.7,42.55882352941177,54.0,62.0,9,63,0,4,0
+C3,table,64,e5-small,37,1.85,39.108108108108105,45.0,62.0,9,63,3,6,0
+C7,fixed,128,e5-small,20,1.0,72.35,71.5,88.30000000000001,59,94,0,0,0
+C8,paragraph,128,e5-small,20,1.0,72.35,71.5,88.30000000000001,59,94,0,0,0
+C9,table,128,e5-small,26,1.3,55.65384615384615,62.0,81.25,12,88,3,2,0
+C4,fixed,64,e5-base,34,1.7,42.76470588235294,61.0,64.0,3,64,0,8,0
+C5,paragraph,64,e5-base,34,1.7,42.55882352941177,54.0,62.0,9,63,0,4,0
+C6,table,64,e5-base,37,1.85,39.108108108108105,45.0,62.0,9,63,3,6,0

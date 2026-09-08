@@ -1,0 +1,23 @@
+{
+  "version": "synthetic-layout-v1",
+  "reason": "Original documents are short prose. Structure existing sentences and monetary lists without adding facts, documents, queries, or changing labels. All configurations see the same rendered text. Not native parser output.",
+  "tables": {
+    "DOC-003": [{
+      "source_text": "세부 내역은 서버 증설 120,000,000원, 소프트웨어 라이선스 90,000,000원, 인건비 90,000,000원이다.",
+      "header": ["세부 내역", "금액"],
+      "rows": [["서버 증설", "120,000,000원"], ["소프트웨어 라이선스", "90,000,000원"], ["인건비", "90,000,000원"]]
+    }],
+    "DOC-006": [{
+      "source_text": "국내 출장 일비는 50,000원이다. 숙박비는 실비로 정산하며 상한은 80,000원이다. 식비는 일 30,000원을 지급한다.",
+      "header": ["출장비 항목", "지급기준"],
+      "rows": [["국내 출장 일비", "50,000원"], ["숙박비", "실비로 정산하며 상한은 80,000원"], ["식비", "일 30,000원을 지급한다."]]
+    }],
+    "DOC-007": [{
+      "source_text": "국내 출장 일비는 60,000원이다. 숙박비는 실비로 정산하며 상한은 100,000원이다. 식비는 일 35,000원을 지급한다.",
+      "header": ["출장비 항목", "지급기준"],
+      "rows": [["국내 출장 일비", "60,000원"], ["숙박비", "실비로 정산하며 상한은 100,000원"], ["식비", "일 35,000원을 지급한다."]]
+    }]
+  },
+  "table_queries": ["Q022", "Q028"],
+  "table_query_note": "Q022 requires the year plus a table value; Q028 requires an item plus an amount. Existing queries only; descriptive subset, not new labels. Q027 total budget is prose, not table evidence."
+}

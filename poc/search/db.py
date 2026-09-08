@@ -22,7 +22,7 @@ from dataset import Chunk, Document
 #: Embedding dimension of the PoC model. NOT a production decision.
 EMBEDDING_DIM = 384
 
-SCHEMA = f"""
+SCHEMA = """
 DROP TABLE IF EXISTS poc_chunks;
 DROP TABLE IF EXISTS poc_documents;
 
@@ -42,7 +42,7 @@ CREATE TABLE poc_chunks (
     document_id  TEXT NOT NULL REFERENCES poc_documents(document_id) ON DELETE CASCADE,
     chunk_index  INT  NOT NULL,
     text         TEXT NOT NULL,
-    embedding    VECTOR({EMBEDDING_DIM}),
+    embedding    VECTOR({embedding_dim}),
     UNIQUE (document_id, chunk_index)
 );
 
@@ -51,13 +51,13 @@ CREATE INDEX idx_poc_documents_trgm ON poc_documents USING GIN(content gin_trgm_
 """
 
 
-def start_server(data_dir: Path):
+def start_server(data_dir: Path, cleanup_mode: str | None = None):
     """Start (or reuse) the embedded PostgreSQL and ensure extensions exist."""
     import pgserver
 
     data_dir = Path(data_dir)
     data_dir.parent.mkdir(parents=True, exist_ok=True)
-    server = pgserver.get_server(data_dir, cleanup_mode=None)
+    server = pgserver.get_server(data_dir, cleanup_mode=cleanup_mode)
     for extension in ("vector", "pg_trgm"):
         server.psql(f"CREATE EXTENSION IF NOT EXISTS {extension}")
     return server
@@ -72,10 +72,13 @@ def load_corpus(
     documents: list[Document],
     chunks: list[Chunk],
     embeddings: dict[tuple[str, int], list[float]] | None = None,
+    embedding_dim: int = EMBEDDING_DIM,
 ) -> None:
     """Rebuild the PoC tables from scratch and load the dataset."""
+    if type(embedding_dim) is not int or not 1 <= embedding_dim <= 16000:
+        raise ValueError("embedding_dim must be an integer between 1 and 16000")
     with conn.cursor() as cur:
-        cur.execute(SCHEMA)
+        cur.execute(SCHEMA.format(embedding_dim=embedding_dim))
         for d in documents:
             cur.execute(
                 """

@@ -12,3 +12,9 @@ artifacts/internal-hwp-poc/
 
 # Throwaway PostgreSQL cluster for the search PoC
 .search-poc-pgdata/
+
+# Regenerable chunking/embedding model caches and binary intermediates.
+.chunking-embedding-cache/
+artifacts/chunking-embedding-poc/*.npy
+artifacts/chunking-embedding-poc/*.npz
+artifacts/chunking-embedding-poc/*.safetensors

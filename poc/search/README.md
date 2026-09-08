@@ -4,6 +4,9 @@
 
 결과 해석은 `docs/poc/korean-search-poc-report.md`를 따른다.
 
+후속 Chunking + Embedding 비교: [실행 안내](README-chunking-embedding.md) ·
+[결과 보고서](../../docs/poc/chunking-embedding-poc-report.md).
+
 > ⚠️ 여기 있는 corpus는 **synthetic**이다. 실제 사내 문서를 대표하지 않는다.
 > 이 실험으로 확인할 수 있는 것은 검색 방식 간 **상대적 강점과 실패 유형**뿐이다.
 

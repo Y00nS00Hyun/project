@@ -1,0 +1,164 @@
+{
+  "status": "COMPLETE",
+  "started_utc": "2026-09-08T02:11:01.790039+00:00",
+  "configurations": [
+    {
+      "id": "C1",
+      "strategy": "fixed",
+      "size": 64,
+      "overlap": 0,
+      "model": "e5-small"
+    },
+    {
+      "id": "C2",
+      "strategy": "paragraph",
+      "size": 64,
+      "overlap": 0,
+      "model": "e5-small"
+    },
+    {
+      "id": "C3",
+      "strategy": "table",
+      "size": 64,
+      "overlap": 0,
+      "model": "e5-small"
+    },
+    {
+      "id": "C4",
+      "strategy": "fixed",
+      "size": 64,
+      "overlap": 0,
+      "model": "e5-base"
+    },
+    {
+      "id": "C5",
+      "strategy": "paragraph",
+      "size": 64,
+      "overlap": 0,
+      "model": "e5-base"
+    },
+    {
+      "id": "C6",
+      "strategy": "table",
+      "size": 64,
+      "overlap": 0,
+      "model": "e5-base"
+    },
+    {
+      "id": "C7",
+      "strategy": "fixed",
+      "size": 128,
+      "overlap": 0,
+      "model": "e5-small"
+    },
+    {
+      "id": "C8",
+      "strategy": "paragraph",
+      "size": 128,
+      "overlap": 0,
+      "model": "e5-small"
+    },
+    {
+      "id": "C9",
+      "strategy": "table",
+      "size": 128,
+      "overlap": 0,
+      "model": "e5-small"
+    }
+  ],
+  "models": [
+    {
+      "key": "e5-small",
+      "name": "intfloat/multilingual-e5-small",
+      "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+      "dimension": 384,
+      "parameters_approx": 118000000,
+      "family": "multilingual E5",
+      "license": "MIT",
+      "max_input_length": 512,
+      "query_prefix": "query: ",
+      "document_prefix": "passage: ",
+      "languages": "100 languages including Korean; XLM-R tokenizer",
+      "device": "CPU, float32; GPU not required for this PoC"
+    },
+    {
+      "key": "e5-base",
+      "name": "intfloat/multilingual-e5-base",
+      "revision": "d128750597153bb5987e10b1c3493a34e5a4502a",
+      "dimension": 768,
+      "parameters_approx": 278000000,
+      "family": "multilingual E5",
+      "license": "MIT",
+      "max_input_length": 512,
+      "query_prefix": "query: ",
+      "document_prefix": "passage: ",
+      "languages": "100 languages including Korean; XLM-R tokenizer",
+      "device": "CPU, float32; GPU not required for this PoC"
+    }
+  ],
+  "input_sha256": {
+    "poc/search/fixtures/documents.jsonl": "2e91debdd2a766f8caaac6f9d031a53aadefb2345157732d2a21643ff272d2dc",
+    "poc/search/fixtures/queries.jsonl": "933cf82a80bca484a129759eeaae5e8de44e46b6fcf3b0b001d4e46cbcfbd0eb",
+    "poc/search/fixtures/chunking_layout.json": "0030ee757a2ecff819739260572477804285233c7a052ebf59d0ac6f2b0ce07a",
+    "docs/functional-spec-v2.3.md": "85e9fcd1cbf20ca74a2894f4c0f16cb49ae5f467d587aac24faa657a78105705",
+    "docs/database-schema-v2.3.md": "ed21846b746b1adb81efd34d0fa6ec40c62eadc71ecb7e63513cce5584834954"
+  },
+  "documents": 20,
+  "queries": 30,
+  "answerable_queries": 28,
+  "sizes": [
+    64,
+    128
+  ],
+  "overlap": 0,
+  "batch_size": 8,
+  "threads": 2,
+  "device": "cpu",
+  "python": "3.10.12",
+  "platform": "Linux-5.15.0-190-generic-x86_64-with-glibc2.35",
+  "cpu": "Intel Core Processor (Haswell, IBRS)",
+  "visible_cpu_count": 8,
+  "packages": {
+    "torch": "2.14.0+cpu",
+    "transformers": "5.16.1",
+    "sentence-transformers": "6.0.1",
+    "tokenizers": "0.23.2",
+    "numpy": "2.2.6",
+    "psycopg": "3.3.5",
+    "pgserver": "0.1.4"
+  },
+  "retrieval": "exact pgvector cosine, max chunk score per document, ties document_id ASC, top10",
+  "rrf_k": 60,
+  "rrf_candidate_k": 10,
+  "trigram_floor": 0.2,
+  "selection_policy": "primary_at_1, recall_at_5, ndcg_at_5, mrr; tie: lower dimension, paragraph > fixed > table, smaller size",
+  "latency_note": "evaluation latency excludes cached query encoding; separate latency.csv contains measured encoding",
+  "token_percentiles": "numpy linear percentiles; legacy retrieval-latency percentiles unchanged",
+  "source_sha256": {
+    "poc/search/chunkers.py": "4c18eee6ddf8cf181592b2ed22055e48b84d86af646711601b5cd7be327c6a6a",
+    "poc/search/chunking_evaluate.py": "b964ecbc2d2c5b90d06b3a761296def1bfd9f9bb05552b16ceb3106038b4dae2",
+    "poc/search/dataset.py": "ef27f9faa11b76f0ea50025f86df19514e73b9c1f3eea148969cbe03cd2b5b1b",
+    "poc/search/db.py": "77a8463993458a77938d2d7568a4ee8e388d9ead77471094e75f4705de1acb6a",
+    "poc/search/embedding_models.py": "ce2137cde5b04ad66c594b86a3b9e921ed69b536ff1281cf684c3d2ca6e88446",
+    "poc/search/evaluate.py": "329b881fa763f06ae74e40f43834510cc8c912a4918d69d5318194efa2e99d46",
+    "poc/search/hybrid_search.py": "831ca341720d8fa87c32777cee575cd8ded2475152e7b39efc37430812d63029",
+    "poc/search/lexical_search.py": "a85365a0b1519dea2adaef9a316bb5b6f8b61646e6816dbf80b64aa0915d79c2",
+    "poc/search/structured_dataset.py": "2b495a4735b3ac84173867519ddd56be7aa273018160ef313dc00c86f7017538",
+    "poc/search/vector_search.py": "500b92d78a02267d9a8f10fc6e0583bb8bf64c53d918e3e951fd26b86300d686"
+  },
+  "matched_model_chunks_verified": true,
+  "postgresql": "PostgreSQL 16.2 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 10.2.1 20210130 (Red Hat 10.2.1-11), 64-bit",
+  "extensions": {
+    "pg_trgm": "1.6",
+    "plpgsql": "1.0",
+    "vector": "0.6.2"
+  },
+  "best_configuration": {
+    "id": "C4",
+    "strategy": "fixed",
+    "size": 64,
+    "overlap": 0,
+    "model": "e5-base"
+  },
+  "finished_utc": "2026-09-08T02:12:10.430253+00:00"
+}
