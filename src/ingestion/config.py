@@ -47,6 +47,11 @@ DEFAULT_EMBEDDING_MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
 #: Must equal chunks.embedding VECTOR(384). Validated at construction.
 REQUIRED_EMBEDDING_DIMENSION = 384
 
+#: pg_trgm word_similarity floor for the lexical route. Provisional value from
+#: the Korean search PoC. One global setting: never varied per query and never
+#: exposed through the API.
+DEFAULT_TRIGRAM_THRESHOLD = 0.20
+
 DEFAULT_EMBEDDING_PROVIDER = "local"
 DEFAULT_EMBEDDING_DEVICE = "cpu"
 DEFAULT_EMBEDDING_BATCH_SIZE = 8
@@ -82,6 +87,8 @@ class IngestionConfig:
     embedding_cache_dir: str | None = None
     embedding_allow_download: bool = False
 
+    trigram_threshold: float = DEFAULT_TRIGRAM_THRESHOLD
+
     follow_symlinks: bool = False
     missing_grace_seconds: int = DEFAULT_MISSING_GRACE_SECONDS
     discoverable_extensions: tuple[str, ...] = field(default=DISCOVERABLE_EXTENSIONS)
@@ -110,6 +117,8 @@ class IngestionConfig:
             )
         if self.embedding_batch_size < 1:
             raise ConfigurationError("embedding_batch_size must be >= 1")
+        if not (0.0 < self.trigram_threshold <= 1.0):
+            raise ConfigurationError("trigram_threshold must be in (0.0, 1.0]")
         if self.follow_symlinks:
             # Allowed, but the caller is opting out of the escape protection
             # that keeps a scan inside the shared root.
@@ -163,6 +172,9 @@ def config_from_env(shared_root: Path | str | None = None) -> IngestionConfig:
         embedding_cache_dir=os.environ.get("EMBEDDING_CACHE_DIR") or None,
         embedding_allow_download=os.environ.get("EMBEDDING_ALLOW_DOWNLOAD", "").lower()
         in {"1", "true", "yes"},
+        trigram_threshold=float(
+            os.environ.get("TRIGRAM_THRESHOLD", DEFAULT_TRIGRAM_THRESHOLD)
+        ),
         follow_symlinks=os.environ.get("SCAN_FOLLOW_SYMLINKS", "").lower() in {"1", "true", "yes"},
         missing_grace_seconds=_int_env("MISSING_GRACE_SECONDS", DEFAULT_MISSING_GRACE_SECONDS),
     )

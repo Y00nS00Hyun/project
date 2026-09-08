@@ -133,11 +133,27 @@ class LocalE5Model:
         return self._model
 
     def embed_passages(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._encode(texts, PASSAGE_PREFIX)
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a search query into the same vector space as the documents.
+
+        Uses the ``query: `` prefix, not ``passage: ``. e5 is trained
+        asymmetrically: mixing the two puts queries and documents in subtly
+        different places and quietly degrades retrieval.
+
+        Deliberately the same class -- and the same loaded model instance -- as
+        document embedding, so a query can never be compared against vectors
+        produced by a different model or revision.
+        """
+        return self._encode([text], QUERY_PREFIX)[0]
+
+    def _encode(self, texts: Sequence[str], prefix: str) -> list[list[float]]:
         if not texts:
             return []
         model = self._load()
         vectors = model.encode(
-            [PASSAGE_PREFIX + text for text in texts],
+            [prefix + text for text in texts],
             batch_size=self.batch_size,
             normalize_embeddings=True,
             show_progress_bar=False,
