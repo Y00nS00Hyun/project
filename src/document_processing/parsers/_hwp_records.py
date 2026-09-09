@@ -121,6 +121,27 @@ def decode_para_text(payload: bytes, *, object_placeholder: str = "") -> str:
             if code in EXTENDED_CONTROLS and object_placeholder:
                 out.append(object_placeholder)
             pos += 2 * CONTROL_SPAN_WCHARS
+        elif 0xD800 <= code <= 0xDFFF:
+            # UTF-16 surrogate. A code point above the BMP is stored as a
+            # high/low pair; calling chr() on each unit separately yields two
+            # lone surrogates, and a string holding those cannot be encoded to
+            # UTF-8 at all -- it fails the database write and crashes the
+            # Rust-backed tokenizer. Not an edge case: Hancom uses plane-15
+            # private-use glyphs and Korean documents carry plane-2 hanja.
+            low = None
+            if 0xD800 <= code <= 0xDBFF and pos + 4 <= len(payload):
+                (candidate,) = struct.unpack_from("<H", payload, pos + 2)
+                if 0xDC00 <= candidate <= 0xDFFF:
+                    low = candidate
+            if low is None:
+                # Unpaired: the document is malformed here. Substitute rather
+                # than propagate a character that cannot survive encoding,
+                # matching the errors="replace" policy used elsewhere.
+                out.append("\ufffd")
+                pos += 2
+            else:
+                out.append(chr(0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)))
+                pos += 4
         else:
             out.append(chr(code))
             pos += 2

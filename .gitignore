@@ -26,3 +26,4 @@ artifacts/chunking-embedding-poc/*.safetensors
 .env
 .env.*
 !.env.example
+backups/

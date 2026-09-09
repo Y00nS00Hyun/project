@@ -352,33 +352,60 @@ http://<VM-IP>:<APP_HTTP_PORT>/
 ```text
 TLS/HTTPS          미구성. 실운영 전 필수
 SSO                미구현. 현재 production API는 전부 401
-DB backup          미구현 ← 아래
+DB backup          스크립트/절차 검증 완료. 자동 스케줄과 원격 보관은 미구현 ← 아래
 로그 수집          없음. docker compose logs 로만 확인
 메트릭/알림        없음
 ```
 
 ### DB backup
 
-백업 전략은 아직 구현하지 않았다. 현재는 `postgres_data` named volume에만
-데이터가 있고, VM 디스크가 손상되면 색인 결과 전체를 잃는다.
-원본 문서는 공유폴더에 남아 있으므로 재색인은 가능하지만,
-파싱 + 임베딩을 처음부터 다시 돌려야 한다.
-
-**실운영 전에 정해야 할 것:**
-
-```text
-pg_dump 주기와 보관 위치
-volume 스냅샷 여부
-복구 절차의 실제 리허설
-```
-
-수동 백업이 급히 필요하면:
+백업/복구 **절차와 스크립트는 구현되어 있고 실제 복구까지 검증했다.**
+아직 없는 것은 **자동 실행 스케줄과 원격 보관**이다.
 
 ```bash
-docker compose exec postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup.sql
+scripts/db-backup.sh                 # backups/docsearch-<timestamp>.dump
+scripts/db-backup.sh /mnt/nas/backup # 다른 위치에 저장
 ```
 
-이 명령은 검증되었지만 **자동화된 백업 정책은 아니다.**
+`pg_dump -Fc`(custom format)로 덤프한 뒤 `pg_restore --list`로 아카이브를
+읽어 검증한다. 잘린 덤프는 이 시점에 걸러져 `.suspect`로 이름이 바뀐다.
+`BACKUP_KEEP`(기본 7)개를 넘는 오래된 덤프는 자동 삭제된다.
+
+복구는 **기본이 리허설**이다.
+
+```bash
+scripts/db-restore.sh backups/docsearch-20260909-074715.dump
+```
+
+별도 데이터베이스 `docsearch_restore_test`에 복원하고 행 수를 보고한다.
+운영 DB는 건드리지 않는다. 끝나면 안내되는 `DROP DATABASE`로 정리한다.
+
+운영 DB를 실제로 덮어쓰는 재해 복구는 명시적으로 요청해야 한다.
+
+```bash
+scripts/db-restore.sh <dump> --into-production
+```
+
+데이터베이스 이름을 직접 입력해야 진행되고, backend를 먼저 정지시켜
+연결을 끊은 뒤 복원하고 다시 기동한다.
+
+**검증 결과(2026-09-09):** 합성 문서 12건 / chunk 12건 / 384차원 벡터 12건 /
+사용자 4명 / 권한 12건을 백업 → 복원한 뒤 원본과 지문(md5)을 대조해
+documents, revisions, chunks, embeddings, search_vector, users, permissions
+**7종 전부 일치**를 확인했다. 복원본에서 pgvector 연산과
+`current_ready_chunks` 뷰가 정상 동작했다.
+
+**아직 없는 것:**
+
+```text
+자동 실행 스케줄 (cron / systemd timer)
+VM 외부 원격 보관    ← 디스크가 통째로 죽으면 backups/ 도 같이 죽는다
+보관 주기 정책
+```
+
+복구 경로는 둘이다. 덤프에서 복원하거나, **공유폴더에서 재색인**하는 것이다.
+원본은 공유폴더에 남아 있으므로 후자도 가능하지만 파싱 + 임베딩을 처음부터
+다시 돌려야 한다. 백업 주기는 "재색인에 걸리는 시간"과 견줘서 정하면 된다.
 
 ---
 
@@ -401,3 +428,31 @@ backend는 의도적으로 뜨지 않는다.
 
 **nginx 502**
 backend가 아직 healthy가 아니거나 죽어 있다. `docker compose ps` 확인.
+
+backend가 healthy인데도 502가 계속 나온다면 nginx가 옛 컨테이너 IP를 붙잡고
+있는 경우다. `frontend/nginx.conf`는 Docker 내장 DNS를 요청마다 다시 조회하도록
+구성되어 있어 정상적으로는 발생하지 않지만, 확인은 이렇게 한다.
+
+```bash
+docker inspect docsearch-backend-1 \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+docker compose logs frontend --tail 20 | grep -oE '[0-9.]+:8000'
+```
+
+두 IP가 다르면 `docker compose restart frontend`로 즉시 해소된다.
+
+**한글 검색이 항상 0건이다 (오류는 없음)**
+`pg_trgm`이 한글에서 trigram을 만들지 못하는 상태다. 데이터베이스 ctype이
+`C`이면 발생한다.
+
+```bash
+docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -tAc "SELECT datctype FROM pg_database WHERE datname = current_database();"
+docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -tAc "SELECT show_trgm('예산');"
+```
+
+`datctype`이 `C.utf8`이어야 하고 `show_trgm`이 비어 있으면 안 된다.
+`C`로 나오면 백업 후 데이터베이스를 `C.utf8`로 재생성하고 복원해야 한다
+(§13 DB backup 참고). semantic 검색은 이 문제와 무관하게 동작하므로
+증상이 "일부 검색만 안 됨"으로 보인다.

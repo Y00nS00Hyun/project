@@ -99,6 +99,26 @@ class TestComposeRenders:
         assert data and data[0]["type"] == "volume"
 
 
+class TestDatabaseLocale:
+    """pg_trgm's word characters come from the database ctype.
+
+    Under the plain C locale, multibyte Korean is not alphanumeric, so
+    show_trgm() returns an empty array and every lexical query matches nothing
+    -- silently, with no error and no log line. This was a real defect in the
+    first version of this compose file.
+    """
+
+    def test_locale_is_not_plain_c(self):
+        text = COMPOSE.read_text(encoding="utf-8")
+        assert "--locale=C.utf8" in text, "the cluster must be initialised with a UTF-8 ctype"
+        assert "--locale=C " not in text and not text.count('--locale=C"'), (
+            "plain C locale disables pg_trgm for Korean"
+        )
+
+    def test_encoding_is_utf8(self):
+        assert "--encoding=UTF8" in COMPOSE.read_text(encoding="utf-8")
+
+
 class TestPortExposure:
     def test_only_the_frontend_publishes_a_host_port(self, rendered):
         published = {
@@ -260,7 +280,20 @@ class TestNginx:
     def test_api_is_proxied_to_the_backend_service(self):
         text = NGINX_CONF.read_text(encoding="utf-8")
         assert "location /api/" in text
-        assert "server backend:8000;" in text
+        assert "backend:8000" in text
+
+    def test_upstream_is_resolved_per_request_not_once_at_startup(self):
+        """A recreated backend gets a new IP; nginx must follow it.
+
+        An `upstream` block caches the resolution for the life of the worker,
+        so `docker compose up -d backend` would leave nginx returning 502 until
+        it was itself restarted. Resolving through a variable defers the lookup
+        to request time.
+        """
+        text = NGINX_CONF.read_text(encoding="utf-8")
+        assert "resolver 127.0.0.11" in text, "Docker's embedded DNS must be configured"
+        assert "proxy_pass $backend_upstream" in text
+        assert "upstream backend {" not in text, "a static upstream block caches the IP"
 
     def test_forwarding_headers_are_set(self):
         text = NGINX_CONF.read_text(encoding="utf-8")

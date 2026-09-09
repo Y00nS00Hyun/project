@@ -87,6 +87,38 @@ class TestDecodeParaText:
     def test_odd_trailing_byte_is_ignored_rather_than_crashing(self):
         assert rec.decode_para_text(utf16("가") + b"\x00") == "가"
 
+    def test_surrogate_pair_becomes_one_astral_character(self):
+        """A code point above the BMP is stored as two WCHARs.
+
+        Decoding each unit on its own produces two lone surrogates, and a
+        string containing those cannot be encoded to UTF-8 at all -- it fails
+        the database write and raises inside the Rust tokenizer. Found in a
+        real 9MB HWP report carrying Hancom plane-15 glyphs.
+        """
+        # U+F02CE (plane 15, private use) == surrogates D B80 / DECE.
+        payload = utf16("앞") + struct.pack("<HH", 0xDB80, 0xDECE) + utf16("뒤")
+        result = rec.decode_para_text(payload)
+        assert result == "앞\U000f02ce뒤"
+        assert len(result) == 3
+        result.encode("utf-8")  # must not raise
+
+    def test_plane_2_hanja_survives(self):
+        # U+20000, the start of CJK Extension B. Korean legal and personal-name
+        # text reaches into this plane.
+        payload = struct.pack("<HH", 0xD840, 0xDC00)
+        assert rec.decode_para_text(payload) == "\U00020000"
+
+    def test_unpaired_surrogate_is_replaced_not_propagated(self):
+        """Malformed input must not yield a string that cannot be encoded."""
+        for payload in (
+            utf16("가") + struct.pack("<H", 0xDB80),              # high, then end
+            utf16("가") + struct.pack("<HH", 0xDB80, 0x0041),     # high, then 'A'
+            utf16("가") + struct.pack("<H", 0xDECE) + utf16("나"),  # stray low
+        ):
+            result = rec.decode_para_text(payload)
+            assert "\ufffd" in result
+            result.encode("utf-8")  # must not raise
+
 
 class TestDecodeCtrlId:
     def test_reverses_the_stored_byte_order(self):
