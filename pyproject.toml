@@ -31,6 +31,19 @@ llm = [
     "anthropic>=1.4",
 ]
 
+# Local embedding runtime.
+#
+# Kept out of the default install because it is by far the heaviest dependency
+# set here and the parser, API contract tests and search SQL do not need it.
+# There is no inference SaaS in this list on purpose: the model runs locally
+# from a pre-populated cache (see docs/embedding-pipeline.md).
+embedding = [
+    "sentence-transformers>=3.0",
+    "transformers>=4.40",
+    "torch>=2.2",
+    "numpy>=1.26",
+]
+
 # Database migration tooling. Not required by the parser/PoC code.
 db = [
     "alembic>=1.13",

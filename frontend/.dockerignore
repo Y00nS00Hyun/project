@@ -1,0 +1,11 @@
+# The build stage runs `npm ci` from the lockfile, so a host node_modules
+# (built against a different platform) must not be copied in.
+node_modules
+dist
+
+# Local developer environment. .env.local can carry a development identity.
+.env
+.env.local
+.env.*.local
+
+.git

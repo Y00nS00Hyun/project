@@ -372,11 +372,21 @@ def test_no_api_key_literal_is_committed_anywhere():
 
 
 def test_frontend_never_receives_the_key_or_calls_the_provider():
-    """The browser talks to this API only; .env.example is the frontend's env."""
+    """The browser talks to this API only.
+
+    The frontend's environment file is ``frontend/.env.example`` -- that is
+    what Vite's loadEnv reads and what can end up in a bundle. The repository
+    root ``.env.example`` is the *deployment* (docker compose) environment and
+    is backend-scoped: it declares ANTHROPIC_API_KEY with no value, because
+    naming the variable is how an operator learns to enable the provider. That
+    the key reaches only the backend service is asserted against the rendered
+    compose configuration in tests/test_deployment_config.py, which is a
+    stronger check than a text scan.
+    """
     frontend = ROOT / "frontend"
     candidates = list((frontend / "src").rglob("*")) + [
         frontend / "package.json", frontend / "index.html",
-        frontend / "vite.config.ts", ROOT / ".env.example",
+        frontend / "vite.config.ts", frontend / ".env.example",
     ]
     for path in candidates:
         if not path.is_file() or path.suffix in {".png", ".svg", ".ico"}:

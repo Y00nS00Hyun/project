@@ -1,0 +1,152 @@
+# Single-VM deployment.
+#
+# Only the frontend publishes a host port. PostgreSQL and FastAPI are reachable
+# solely on the internal compose network, so the only way to the API is through
+# nginx -- which is also what makes the deployment same-origin and keeps the
+# backend's CORS allow-list empty.
+
+name: docsearch
+
+# A single VM with no log shipper: without a cap, json-file logs grow until the
+# disk is full.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL 16 + pgvector
+  # -------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Locale-independent collation: the schema's text ordering must not
+      # change because the image's default locale did.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      # Named volume, so `docker compose down` keeps the data.
+      - postgres_data:/var/lib/postgresql/data
+    # No `ports:`. Deliberate -- see the header comment.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 15s
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # Schema migration (one-shot)
+  # -------------------------------------------------------------------------
+  # Runs alembic once and exits. The API never migrates on startup: several
+  # uvicorn processes racing `upgrade head` against one database is how a
+  # half-applied schema happens.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: docsearch-backend:local
+    # Never restart. A failed migration must stay failed and visible, and a
+    # restart loop would retry a broken upgrade forever.
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # FastAPI
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: docsearch-backend:local
+    restart: unless-stopped
+    environment:
+      # Anything outside the non-production set makes require_user() reject
+      # every request: there is no SSO yet, so production fails closed.
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      SHARED_ROOT: ${SHARED_ROOT:-/data/shared}
+
+      # Read from the read-only mount below. Never downloaded at runtime.
+      EMBEDDING_CACHE_DIR: ${EMBEDDING_CACHE_DIR:-/opt/model-cache}
+      # The chunking tokenizer calls AutoTokenizer.from_pretrained() without a
+      # cache_dir, so it resolves through HF_HUB_CACHE rather than
+      # EMBEDDING_CACHE_DIR. Both must point at the same snapshot.
+      HF_HUB_CACHE: ${EMBEDDING_CACHE_DIR:-/opt/model-cache}
+
+      # Empty by default. The provider stays UnconfiguredProvider and no
+      # request leaves the network; an API key present in the environment is
+      # not enough on its own to turn generation on.
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      ANTHROPIC_MAX_TOKENS: ${ANTHROPIC_MAX_TOKENS:-}
+      ANTHROPIC_TIMEOUT_SECONDS: ${ANTHROPIC_TIMEOUT_SECONDS:-}
+      ANTHROPIC_MAX_RETRIES: ${ANTHROPIC_MAX_RETRIES:-}
+      ANTHROPIC_EFFORT: ${ANTHROPIC_EFFORT:-}
+
+      # Same-origin through nginx, so no browser origin needs allowing.
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+    volumes:
+      # Read-only, always. The system is a reader of the shared folder: it must
+      # not be able to modify, delete, rename or move an original document.
+      - ${SHARED_FOLDER_HOST_PATH:?set SHARED_FOLDER_HOST_PATH in .env}:/data/shared:ro
+      # Pre-populated model cache, also read-only.
+      - ${EMBEDDING_CACHE_HOST_PATH:?set EMBEDDING_CACHE_HOST_PATH in .env}:/opt/model-cache:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # API Contract v1 defines no /health route and this deployment does not add
+    # one: a TCP connect proves the server is accepting connections without
+    # putting a new endpoint on the public contract.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    # No `ports:`. Reachable only via nginx.
+    logging: *default-logging
+
+  # -------------------------------------------------------------------------
+  # React build + nginx (the only host-published service)
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: docsearch-frontend:local
+    restart: unless-stopped
+    ports:
+      - "${APP_HTTP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    logging: *default-logging
+
+volumes:
+  postgres_data:

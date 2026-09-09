@@ -1,0 +1,55 @@
+# FastAPI + ingestion + RAG runtime.
+#
+# One image serves both the `backend` and `migrate` compose services: the
+# migration needs exactly the same code and dependency set, and building it
+# separately would let the two drift apart.
+
+FROM python:3.12-slim-bookworm
+
+# Fail fast, no .pyc, unbuffered logs so `docker compose logs` is live.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# CPU-only torch, installed from PyTorch's CPU index before the project.
+#
+# This is a wheel-selection concern, not a second dependency list: the version
+# constraint still lives in pyproject.toml's `embedding` extra, and the install
+# below re-checks it. Without this line pip resolves the default PyPI wheel,
+# which bundles CUDA and adds several gigabytes that this CPU-only deployment
+# would never execute.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Dependency metadata first so the expensive install layer is cached across
+# source edits.
+COPY pyproject.toml README.md* ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir '.[api,db,llm,embedding]'
+
+# Migration assets. alembic.ini sets script_location = migrations and reads
+# DATABASE_URL from the environment, so both must be present for the migrate
+# service; no credentials are baked in.
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
+
+# Non-root runtime. The shared folder and model cache are mounted read-only,
+# so this user only ever needs read access to them.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /tmp/hf-home \
+    && chown -R appuser:appuser /app /tmp/hf-home
+USER appuser
+
+# Offline by construction: no HTTP transport to Hugging Face can be opened at
+# runtime, so a missing model cache fails loudly instead of silently pulling
+# ~500MB on first request. See docs/deployment.md "Model cache".
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_HOME=/tmp/hf-home
+
+EXPOSE 8000
+
+# No --reload: the production server does not watch the filesystem.
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]

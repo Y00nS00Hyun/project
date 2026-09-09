@@ -21,3 +21,8 @@ artifacts/chunking-embedding-poc/*.safetensors
 
 # Throwaway PostgreSQL cluster for migration tests
 .migration-test-pgdata/
+
+# Deployment secrets. .env.example is tracked; .env is not.
+.env
+.env.*
+!.env.example

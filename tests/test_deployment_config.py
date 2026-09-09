@@ -1,0 +1,276 @@
+"""Static checks on the deployment configuration.
+
+These read the compose file, the Dockerfiles and the nginx config as data. They
+do not start containers -- the point is that the *declared* configuration is
+safe, so a mistake is caught before anything is deployed rather than after.
+
+The security-relevant properties asserted here are the ones that are easy to
+regress by accident: a debugging session that publishes 5432 to the host, a
+convenience edit that drops `:ro` from the shared-folder mount, an API key that
+ends up in a tracked file.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+COMPOSE = ROOT / "compose.yaml"
+BACKEND_DOCKERFILE = ROOT / "Dockerfile.backend"
+FRONTEND_DOCKERFILE = ROOT / "frontend" / "Dockerfile"
+NGINX_CONF = ROOT / "frontend" / "nginx.conf"
+ENV_EXAMPLE = ROOT / ".env.example"
+
+#: Values good enough to render the compose file. Throwaway: these never leave
+#: the test process and are not credentials for anything.
+RENDER_ENV = {
+    "APP_ENV": "production",
+    "APP_HTTP_PORT": "8080",
+    "POSTGRES_DB": "docsearch",
+    "POSTGRES_USER": "docsearch",
+    "POSTGRES_PASSWORD": "render-only-not-a-credential",
+    "DATABASE_URL": "postgresql+psycopg://docsearch:render-only@postgres:5432/docsearch",
+    "SHARED_FOLDER_HOST_PATH": "/tmp/render-only-shared",
+    "SHARED_ROOT": "/data/shared",
+    "EMBEDDING_CACHE_HOST_PATH": "/tmp/render-only-cache",
+    "EMBEDDING_CACHE_DIR": "/opt/model-cache",
+}
+
+
+def instructions(path: Path) -> str:
+    """A Dockerfile with its comment lines removed.
+
+    The comments deliberately *name* the things that must not happen ("No
+    --reload", "built without VITE_DEBUG_USER_ID"), so a plain substring search
+    over the whole file would fail on the very documentation that explains the
+    guarantee.
+    """
+    return "\n".join(
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
+def _docker_compose_available() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    result = subprocess.run(
+        ["docker", "compose", "version"], capture_output=True, text=True
+    )
+    return result.returncode == 0
+
+
+@pytest.fixture(scope="module")
+def rendered() -> dict:
+    """The compose file as Docker actually resolves it.
+
+    Rendered rather than parsed as YAML: the interesting properties live in the
+    interpolated result, and asserting on the raw text would not prove what
+    Docker will do with it.
+    """
+    if not _docker_compose_available():
+        pytest.skip("docker compose is not available on this machine")
+    result = subprocess.run(
+        ["docker", "compose", "-f", str(COMPOSE), "config", "--format", "json"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        env={**os.environ, **RENDER_ENV},
+    )
+    if result.returncode != 0:
+        pytest.fail(f"docker compose config failed:\n{result.stderr}")
+    return json.loads(result.stdout)
+
+
+class TestComposeRenders:
+    def test_config_is_valid(self, rendered):
+        assert set(rendered["services"]) == {"postgres", "migrate", "backend", "frontend"}
+
+    def test_database_volume_is_named_so_down_does_not_destroy_it(self, rendered):
+        assert "postgres_data" in rendered.get("volumes", {})
+        mounts = rendered["services"]["postgres"]["volumes"]
+        data = [m for m in mounts if m["target"] == "/var/lib/postgresql/data"]
+        assert data and data[0]["type"] == "volume"
+
+
+class TestPortExposure:
+    def test_only_the_frontend_publishes_a_host_port(self, rendered):
+        published = {
+            name: svc.get("ports") or []
+            for name, svc in rendered["services"].items()
+        }
+        assert published["postgres"] == [], "PostgreSQL must not be reachable from the host"
+        assert published["backend"] == [], "FastAPI must only be reachable through nginx"
+        assert published["migrate"] == []
+        assert len(published["frontend"]) == 1
+
+    def test_frontend_publishes_the_configured_port(self, rendered):
+        port = rendered["services"]["frontend"]["ports"][0]
+        assert str(port["published"]) == RENDER_ENV["APP_HTTP_PORT"]
+        assert port["target"] == 8080
+
+
+class TestSharedFolderMount:
+    def test_shared_folder_is_read_only(self, rendered):
+        """The system reads the shared folder. It must not be able to write it.
+
+        Without read_only the container could modify, delete, rename or move an
+        original document -- the one thing this system must never do to the
+        source of truth.
+        """
+        mounts = rendered["services"]["backend"]["volumes"]
+        shared = [m for m in mounts if m["target"] == RENDER_ENV["SHARED_ROOT"]]
+        assert shared, "shared folder is not mounted into the backend"
+        assert shared[0]["read_only"] is True
+
+    def test_model_cache_is_read_only(self, rendered):
+        mounts = rendered["services"]["backend"]["volumes"]
+        cache = [m for m in mounts if m["target"] == RENDER_ENV["EMBEDDING_CACHE_DIR"]]
+        assert cache and cache[0]["read_only"] is True
+
+    def test_no_broad_default_host_path(self):
+        """The host path is required, with no default.
+
+        A default of /, $HOME or the repository itself would mean a missing
+        setting silently indexes the wrong tree.
+        """
+        text = COMPOSE.read_text(encoding="utf-8")
+        assert "${SHARED_FOLDER_HOST_PATH:?" in text, "must be required, not defaulted"
+        assert "${SHARED_FOLDER_HOST_PATH:-" not in text
+        assert "${EMBEDDING_CACHE_HOST_PATH:?" in text
+
+
+class TestClaudeDisabledByDefault:
+    def test_provider_is_empty_without_configuration(self, rendered):
+        """An API key alone must not enable generation.
+
+        LLM_PROVIDER selects the provider; anything but "anthropic" leaves
+        UnconfiguredProvider in place and nothing leaves the network.
+        """
+        env = rendered["services"]["backend"]["environment"]
+        assert env.get("LLM_PROVIDER") in ("", None)
+        assert env.get("ANTHROPIC_API_KEY") in ("", None)
+
+    def test_anthropic_variables_reach_the_backend_only(self, rendered):
+        for name, svc in rendered["services"].items():
+            if name == "backend":
+                continue
+            env = svc.get("environment") or {}
+            leaked = [key for key in env if "ANTHROPIC" in key.upper()]
+            assert not leaked, f"{name} must not receive {leaked}"
+
+    def test_frontend_receives_no_vite_secret(self, rendered):
+        env = rendered["services"]["frontend"].get("environment") or {}
+        assert not [key for key in env if key.startswith("VITE_")]
+        build = rendered["services"]["frontend"].get("build") or {}
+        assert not (build.get("args") or {})
+
+
+class TestProductionAuthentication:
+    def test_default_app_env_is_production(self):
+        """production makes require_user() fail closed until SSO exists."""
+        text = COMPOSE.read_text(encoding="utf-8")
+        assert "APP_ENV: ${APP_ENV:-production}" in text
+
+    def test_debug_identity_is_not_configured_anywhere(self, rendered):
+        blob = json.dumps(rendered)
+        assert "X-Debug-User-Id" not in blob
+        assert "VITE_DEBUG_USER_ID" not in blob
+
+    def test_frontend_build_does_not_bake_in_an_identity(self):
+        assert "VITE_DEBUG_USER_ID" not in instructions(FRONTEND_DOCKERFILE)
+
+
+class TestNoSecretsInTrackedFiles:
+    def test_no_api_key_literals(self):
+        for path in (COMPOSE, BACKEND_DOCKERFILE, FRONTEND_DOCKERFILE, ENV_EXAMPLE, NGINX_CONF):
+            text = path.read_text(encoding="utf-8")
+            assert "sk-ant-" not in text, f"{path.name} contains an API key literal"
+
+    def test_env_example_supplies_no_password(self):
+        """The example must not ship a working default password."""
+        for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
+            if line.startswith("POSTGRES_PASSWORD="):
+                assert line.strip() == "POSTGRES_PASSWORD=", "no default password"
+            if line.startswith("ANTHROPIC_API_KEY="):
+                assert line.strip() == "ANTHROPIC_API_KEY="
+
+    def test_env_is_git_ignored_but_the_example_is_not(self):
+        if shutil.which("git") is None:
+            pytest.skip("git is not available")
+
+        def ignored(relative: str) -> bool:
+            return subprocess.run(
+                ["git", "check-ignore", "-q", relative], cwd=ROOT
+            ).returncode == 0
+
+        assert ignored(".env")
+        assert not ignored(".env.example")
+
+
+class TestBackendImage:
+    def test_runs_without_reload(self):
+        text = instructions(BACKEND_DOCKERFILE)
+        assert "--reload" not in text
+        assert "api.app:app" in text
+
+    def test_runs_as_a_non_root_user(self):
+        assert "USER appuser" in BACKEND_DOCKERFILE.read_text(encoding="utf-8")
+
+    def test_dependencies_come_from_pyproject_extras(self):
+        """No second dependency list to keep in step with pyproject.toml."""
+        assert "'.[api,db,llm,embedding]'" in BACKEND_DOCKERFILE.read_text(encoding="utf-8")
+
+    def test_model_download_is_disabled_at_runtime(self):
+        """No startup download: a missing cache must fail loudly."""
+        text = BACKEND_DOCKERFILE.read_text(encoding="utf-8")
+        assert "HF_HUB_OFFLINE=1" in text
+        assert "TRANSFORMERS_OFFLINE=1" in text
+
+    def test_pinned_base_image(self):
+        text = instructions(BACKEND_DOCKERFILE)
+        assert "FROM python:3.12-slim-bookworm" in text
+        assert ":latest" not in text
+
+
+class TestFrontendImage:
+    def test_builds_static_files_and_serves_them_with_nginx(self):
+        text = instructions(FRONTEND_DOCKERFILE)
+        assert "npm ci" in text, "must install from the lockfile"
+        assert "npm run build" in text
+        assert "npm run dev" not in text, "no Vite dev server in production"
+        assert ":latest" not in text
+
+    def test_node_modules_do_not_reach_the_runtime_stage(self):
+        text = FRONTEND_DOCKERFILE.read_text(encoding="utf-8")
+        assert "COPY --from=build --chown=nginx:nginx /app/dist" in text
+
+
+class TestNginx:
+    def test_spa_fallback_is_configured(self):
+        """/search, /chat/<id> and /documents/<id> have no file behind them."""
+        assert "try_files $uri $uri/ /index.html;" in NGINX_CONF.read_text(encoding="utf-8")
+
+    def test_api_is_proxied_to_the_backend_service(self):
+        text = NGINX_CONF.read_text(encoding="utf-8")
+        assert "location /api/" in text
+        assert "server backend:8000;" in text
+
+    def test_forwarding_headers_are_set(self):
+        text = NGINX_CONF.read_text(encoding="utf-8")
+        for header in ("Host", "X-Real-IP", "X-Forwarded-For", "X-Forwarded-Proto", "X-Request-Id"):
+            assert f"proxy_set_header {header}" in text
+
+
+class TestDockerIgnore:
+    def test_excludes_secrets_and_caches_but_keeps_the_example(self):
+        text = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+        for pattern in (".git", ".env", "frontend/node_modules/", "__pycache__/", "artifacts/"):
+            assert pattern in text
+        assert "!.env.example" in text

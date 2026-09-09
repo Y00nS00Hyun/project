@@ -1,0 +1,41 @@
+# Keep the build context small and free of anything secret or regenerable.
+
+.git
+.gitignore
+
+# Secrets. .env.example is tracked and deliberately kept (see the negation).
+.env
+.env.*
+!.env.example
+
+# Python build/test leftovers
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+src/*.egg-info/
+
+# Throwaway PostgreSQL clusters used by the PoC and migration tests
+.search-poc-pgdata/
+.migration-test-pgdata/
+
+# Frontend: built in its own context, never copied into the backend image
+frontend/node_modules/
+frontend/dist/
+
+# Model caches. Mounted at runtime, never baked into an image.
+.chunking-embedding-cache/
+**/models--*/
+
+# Internal corpus and PoC output. Must never reach a build context.
+internal-corpus/
+artifacts/
+poc/
+*.corpus-mapping.json
+
+# Tests and developer scripts are not part of the runtime image
+tests/
+scripts/
+docs/
