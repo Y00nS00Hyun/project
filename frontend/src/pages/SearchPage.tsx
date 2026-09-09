@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { fetchDepartments, fetchTags } from '../api/metadata'
 import { searchDocuments } from '../api/search'
+import { AppNav } from '../components/AppNav'
 import { Filters } from '../components/Filters'
 import { Pagination } from '../components/Pagination'
 import { ResultCard } from '../components/ResultCard'
@@ -49,6 +50,7 @@ export function SearchPage() {
 
   return (
     <main className="page">
+      <AppNav />
       <h1 className="page-title">사내 문서 검색</h1>
 
       <SearchForm value={state.q} onSubmit={onSubmit} />

@@ -107,14 +107,23 @@ export interface RequestOptions {
   signal?: AbortSignal
 }
 
-async function fetchApi(path: string, options: RequestOptions = {}): Promise<Response> {
+interface FetchOptions extends RequestOptions {
+  method?: 'GET' | 'POST'
+  /** Serialised as JSON. Absent means no request body and no Content-Type. */
+  body?: unknown
+}
+
+async function fetchApi(path: string, options: FetchOptions = {}): Promise<Response> {
   const url = `${API_BASE_URL}${path}${buildQuery(options.params ?? {})}`
+  const headers: Record<string, string> = { Accept: 'application/json', ...identityHeaders() }
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   let response: Response
   try {
     response = await fetch(url, {
-      method: 'GET',
+      method: options.method ?? 'GET',
       credentials: 'include',
-      headers: { Accept: 'application/json', ...identityHeaders() },
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: options.signal,
     })
   } catch (cause) {
@@ -127,6 +136,21 @@ async function fetchApi(path: string, options: RequestOptions = {}): Promise<Res
 
 export async function getJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const response = await fetchApi(path, options)
+  return (await response.json()) as T
+}
+
+/**
+ * The only writing method this client has.
+ *
+ * Errors come back through the same envelope parser as every GET, so chat has
+ * no error handling of its own to drift out of sync.
+ */
+export async function postJson<T>(
+  path: string,
+  body: unknown,
+  options: RequestOptions = {},
+): Promise<T> {
+  const response = await fetchApi(path, { ...options, method: 'POST', body })
   return (await response.json()) as T
 }
 

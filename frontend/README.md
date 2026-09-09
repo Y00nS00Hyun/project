@@ -1,6 +1,6 @@
-# React Search UI v1
+# React Search + Chat UI v1
 
-사내 문서 검색과 원본 열람용 UI. 실제 FastAPI `/api/v1`에 연결한다.
+사내 문서 검색·원본 열람과 문서 근거형 AI 질문 UI. 실제 FastAPI `/api/v1`에 연결한다.
 API 기준: [HTTP 구현 문서](../docs/http-api-search-documents.md),
 [계약](../docs/api-contract-v1.md), `src/api/schemas/` 및 실제 OpenAPI.
 
@@ -67,6 +67,38 @@ Backend SSO는 아직 미구현이므로 현재 production 인증 응답은 401�
 정적 배포는 `/search`, `/documents/*` 요청을 `index.html`로 연결하고 `/api`를 Backend로 연결해야 한다.
 Vite 개발 프록시는 production bundle에 포함되지 않는다.
 
+## Route
+
+| Route | 화면 |
+| --- | --- |
+| `/search` | 문서 검색 |
+| `/documents/:documentId` | 문서 상세 / 리비전 / 다운로드 |
+| `/chat` | AI 문서 질문. 대화 목록과 새 대화 |
+| `/chat/:sessionId` | 대화 상세. 질문 전송, 답변, 출처 |
+
+상단 navigation으로 검색과 Chat을 오간다. 정적 배포는 `/chat`, `/chat/*`도
+`index.html`로 연결해야 한다.
+
+## Chat UI
+
+Chat 화면은 기존 Chat API 4개만 사용한다.
+
+```text
+POST /api/v1/chat/sessions                        새 대화
+GET  /api/v1/chat/sessions                        내 대화 목록
+GET  /api/v1/chat/sessions/{session_id}           대화와 메시지
+POST /api/v1/chat/sessions/{session_id}/messages  질문 전송
+```
+
+`refused`, `content_hidden`, `accessible`은 서버가 준 값을 그대로 사용한다.
+답변 문자열이나 출처 개수로 거절·권한 상태를 추론하지 않는다. 접근할 수 없는 출처는
+제목·형식·위치를 표시하지 않는다. Streaming은 서버에 없으므로 타이핑 애니메이션도 없다.
+
+**브라우저는 외부 LLM API를 직접 호출하지 않는다.** 모든 AI 요청은 `/api/v1/chat/...`으로만 간다.
+`ANTHROPIC_API_KEY` 등 provider 비밀값은 Backend 전용이며 `VITE_*`에 넣지 않는다.
+Production LLM provider 설정은 [RAG/Chat Backend 문서](../docs/rag-chat-backend.md)를 따른다.
+provider가 없으면 질문 전송은 공통 error envelope의 500으로 표시된다.
+
 ## Test / Build
 
 ```bash
@@ -104,11 +136,12 @@ frontend/
 ├── scripts/smoke.py
 └── src/
     ├── main.tsx / App.tsx / App.test.tsx
-    ├── api/          client, types, search, documents, metadata 및 테스트
+    ├── api/          client, types, search, documents, metadata, chat 및 테스트
     ├── components/   SearchForm, Filters, ResultCard, Pagination,
-    │                RevisionList, StateViews 및 테스트
+    │                RevisionList, StateViews, AppNav, SessionList,
+    │                ChatMessages, ChatSources, ChatComposer 및 테스트
     ├── hooks/        useSearchState, useAsyncResource 및 테스트
-    ├── pages/        SearchPage, DocumentPage 및 테스트
+    ├── pages/        SearchPage, DocumentPage, ChatPage 및 테스트
     ├── test/         테스트 설정과 fixture
     └── labels.ts / labels.test.ts / styles.css / vite-env.d.ts
 ```

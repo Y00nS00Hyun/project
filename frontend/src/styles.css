@@ -250,3 +250,119 @@ select:focus-visible {
   .filter select { max-width: 75%; }
   .revision-meta { margin-left: 0; width: 100%; }
 }
+
+/* --- navigation ------------------------------------------------------- */
+.app-nav {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+.app-nav-link {
+  padding: 8px 14px;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.app-nav-link:hover { color: var(--accent); }
+.app-nav-link.is-active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* --- chat layout ------------------------------------------------------ */
+.page-wide { max-width: 1100px; }
+
+.chat-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.chat-sidebar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.chat-new-button { width: 100%; margin-bottom: 12px; }
+.chat-sidebar-note { font-size: 13px; color: var(--muted); margin: 8px 4px; }
+
+.session-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.session-item {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--text);
+  border: 1px solid transparent;
+}
+.session-item:hover { background: var(--bg); }
+.session-item.is-active { border-color: var(--accent); background: var(--bg); }
+.session-title { display: block; font-size: 14px; }
+.session-meta { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }
+
+.chat-main {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  min-height: 420px;
+}
+.chat-session-title { font-size: 16px; margin: 0 0 16px; }
+
+.chat-log { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 14px; }
+.chat-bubble {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--bg);
+}
+.chat-user { background: #eef4fd; border-color: #cfdff6; }
+.chat-assistant { background: var(--surface); }
+/* A refusal is a normal outcome, so it is tinted, not marked as an error. */
+.chat-assistant.is-refused { background: #fbfaf5; border-color: #e2dcc7; }
+.chat-bubble.is-pending { opacity: 0.75; }
+
+.chat-role { margin: 0 0 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.chat-text { margin: 0; white-space: pre-wrap; font-size: 15px; }
+.chat-notice, .chat-refusal-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.chat-notice { margin: 0; font-style: normal; }
+.chat-pending-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+
+.chat-sources { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.chat-sources-title { font-size: 13px; margin: 0 0 6px; color: var(--muted); }
+.chat-source-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.chat-source { font-size: 13px; display: grid; gap: 2px; }
+.chat-source-index { font-size: 12px; color: var(--muted); }
+.chat-source-title { color: var(--accent); text-decoration: none; }
+.chat-source-title:hover { text-decoration: underline; }
+.chat-source-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
+.chat-source-hidden { color: var(--muted); }
+
+.chat-composer { margin-top: 16px; display: grid; gap: 8px; }
+.chat-input {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.chat-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chat-input:disabled { background: var(--bg); }
+.chat-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-counter { font-size: 12px; color: var(--muted); }
+.chat-retry-row { display: flex; gap: 8px; margin: 10px 0 0; }
+
+@media (max-width: 760px) {
+  /* Sidebar stacks above the transcript rather than being redesigned. */
+  .chat-layout { grid-template-columns: minmax(0, 1fr); }
+}

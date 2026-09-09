@@ -2,7 +2,13 @@ import { render } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type {
+  AccessibleSource,
+  AssistantChatMessage,
+  ChatMessage,
+  ChatSessionDetail,
+  ChatSessionSummary,
   DocumentDetail,
+  PlainChatMessage,
   Revision,
   SearchItem,
   SearchResponse,
@@ -109,6 +115,73 @@ export function makeRevision(overrides: Partial<Revision> = {}): Revision {
     is_current: true,
     is_ready: true,
     created_at: '2026-08-30T04:12:00Z',
+    ...overrides,
+  }
+}
+
+// --- chat fixtures ---------------------------------------------------------
+
+export function makeSession(overrides: Partial<ChatSessionSummary> = {}): ChatSessionSummary {
+  return {
+    session_id: 'ses-1',
+    title: '2026년 사업계획',
+    created_at: '2026-09-01T01:00:00Z',
+    updated_at: '2026-09-01T02:00:00Z',
+    message_count: 2,
+    ...overrides,
+  }
+}
+
+export function makeUserMessage(overrides: Partial<PlainChatMessage> = {}): PlainChatMessage {
+  return {
+    message_id: 'msg-user-1',
+    role: 'user',
+    content: '사업 예산이 얼마야?',
+    created_at: '2026-09-01T02:00:00Z',
+    ...overrides,
+  }
+}
+
+export function makeAccessibleSource(overrides: Partial<AccessibleSource> = {}): AccessibleSource {
+  return {
+    document_id: 'doc-1',
+    revision_id: 'rev-4',
+    chunk_id: 'chunk-1',
+    title: '2026년 사업계획서',
+    file_type: 'hwpx',
+    section_title: null,
+    anchor: { type: 'paragraph', paragraph_index: 32, paragraph_end: 34 },
+    accessible: true,
+    ...overrides,
+  }
+}
+
+export function makeAssistantMessage(
+  overrides: Partial<AssistantChatMessage> = {},
+): AssistantChatMessage {
+  return {
+    message_id: 'msg-ai-1',
+    role: 'assistant',
+    content: '총 사업비는 3억 원입니다.',
+    refused: false,
+    has_inaccessible_sources: false,
+    content_hidden: false,
+    sources: [makeAccessibleSource()],
+    created_at: '2026-09-01T02:00:05Z',
+    ...overrides,
+  }
+}
+
+export function makeSessionDetail(
+  messages: ChatMessage[] = [makeUserMessage(), makeAssistantMessage()],
+  overrides: Partial<ChatSessionDetail> = {},
+): ChatSessionDetail {
+  return {
+    session_id: 'ses-1',
+    title: '2026년 사업계획',
+    created_at: '2026-09-01T01:00:00Z',
+    updated_at: '2026-09-01T02:00:00Z',
+    messages: { items: messages, page: 1, size: 50, total: messages.length },
     ...overrides,
   }
 }

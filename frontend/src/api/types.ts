@@ -140,3 +140,121 @@ export const FILE_TYPES = ['hwp', 'hwpx', 'docx', 'pdf'] as const
 export type FileType = (typeof FILE_TYPES)[number]
 
 export const DEFAULT_PAGE_SIZE = 20
+
+// ---------------------------------------------------------------------------
+// Chat / RAG (contract section 9, src/api/schemas/chat.py)
+// ---------------------------------------------------------------------------
+
+export interface ChatSession {
+  session_id: string
+  /** Optional and often null: the API does not invent one from the question. */
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatSessionSummary extends ChatSession {
+  message_count: number
+}
+
+export interface ChatSessionListResponse {
+  items: ChatSessionSummary[]
+  page: number
+  size: number
+  total: number
+}
+
+/**
+ * A citation the caller may still read.
+ *
+ * Reuses the search UI's `Anchor`, so one helper renders positions everywhere
+ * and no page number is invented for HWP/HWPX.
+ */
+export interface AccessibleSource {
+  document_id: string
+  revision_id: string
+  chunk_id: string
+  title: string
+  file_type: string
+  section_title: string | null
+  anchor: Anchor
+  accessible: true
+}
+
+/**
+ * A citation whose document the caller can no longer read.
+ *
+ * The server withholds title, file_type, section_title and anchor entirely --
+ * they are not null here, they are absent from the type, so no component can
+ * render stale metadata it happens to still hold.
+ */
+export interface InaccessibleSource {
+  document_id: string
+  revision_id: string
+  chunk_id: string
+  accessible: false
+}
+
+/** Discriminated on `accessible`, matching the OpenAPI discriminator. */
+export type ChatSource = AccessibleSource | InaccessibleSource
+
+export interface PlainChatMessage {
+  message_id: string
+  role: 'user' | 'system'
+  content: string
+  created_at: string
+}
+
+export interface AssistantChatMessage {
+  message_id: string
+  role: 'assistant'
+  /** null when the server hid it; read `content_hidden`, never infer from null. */
+  content: string | null
+  /** Server-owned. Never re-derived from the answer text or source count. */
+  refused: boolean
+  has_inaccessible_sources: boolean
+  content_hidden: boolean
+  sources: ChatSource[]
+  created_at: string
+}
+
+export type ChatMessage = PlainChatMessage | AssistantChatMessage
+
+export interface ChatMessagePage {
+  items: ChatMessage[]
+  page: number
+  size: number
+  total: number
+}
+
+export interface ChatSessionDetail extends ChatSession {
+  messages: ChatMessagePage
+}
+
+export interface CreateSessionRequest {
+  title?: string | null
+}
+
+export interface SendMessageRequest {
+  message: string
+}
+
+/**
+ * A freshly generated turn.
+ *
+ * `sources` is the accessible variant only: everything cited was re-checked
+ * against the caller's permissions immediately before the answer was stored.
+ */
+export interface SendMessageResponse {
+  message_id: string
+  answer: string
+  refused: boolean
+  sources: AccessibleSource[]
+  created_at: string
+}
+
+/** SendMessageRequest.message maxLength in the served schema. */
+export const MESSAGE_MAX_LENGTH = 4000
+
+export const CHAT_SESSION_PAGE_SIZE = 20
+export const CHAT_MESSAGE_PAGE_SIZE = 50
