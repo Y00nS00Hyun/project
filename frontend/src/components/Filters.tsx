@@ -1,4 +1,5 @@
 import { FILE_TYPES, type DepartmentRef, type FileType, type TagRef } from '../api/types'
+import { documentTypeOptions } from '../documentTypes'
 import { fileTypeLabel } from '../labels'
 import type { SearchState } from '../hooks/useSearchState'
 
@@ -31,9 +32,25 @@ export function yearOptions(selected: number | null, now = new Date()): number[]
 }
 
 export function Filters({ state, departments, tags, departmentsLoading, tagsLoading, onChange }: Props) {
-  const selectedTags = state.tagIds.map((id) => tags.find((tag) => tag.id === id)
-    ?? { id, name: '목록에 없는 태그' })
-  const available = tags.filter((tag) => !state.tagIds.includes(tag.id))
+  // Document kinds are tags under a reserved namespace, so they arrive on the
+  // same GET /tags call and are filtered with the same tag_id parameter. The
+  // namespace prefix is an implementation detail and never reaches the screen.
+  const typeOptions = documentTypeOptions(tags)
+
+  // Exactly one kind per document, so this is a single-select: the id of the
+  // chosen kind is the only namespaced tag id in the URL.
+  const typeIds = new Set(typeOptions.map((option) => option.id))
+  const selectedTypeId = state.tagIds.find((id) => typeIds.has(id)) ?? null
+
+  // Free-form tag ids stay in the URL untouched; changing the kind must not
+  // drop a tag filter that some other control set.
+  const otherTagIds = state.tagIds.filter((id) => !typeIds.has(id))
+
+  const showTypeFilter = tagsLoading || typeOptions.length > 0
+
+  const freeFormChips = otherTagIds.map(
+    (id) => tags.find((tag) => tag.id === id) ?? { id, name: '목록에 없는 태그' },
+  )
 
   return (
     <div className="filters">
@@ -74,26 +91,31 @@ export function Filters({ state, departments, tags, departmentsLoading, tagsLoad
           </select>
         </label>
 
+        {showTypeFilter && (
         <label className="filter">
-          <span className="filter-label">태그</span>
+          <span className="filter-label">문서 종류</span>
           <select
-            value=""
+            value={selectedTypeId == null ? '' : String(selectedTypeId)}
             disabled={tagsLoading}
             onChange={(event) => {
               const id = Number(event.target.value)
-              // Multiple tags are AND-combined by the backend, so each pick
-              // narrows rather than replaces.
-              if (Number.isInteger(id) && id) onChange({ tagIds: [...state.tagIds, id] })
+              // Single-select: replace the kind, keep every other tag filter.
+              onChange({
+                tagIds: event.target.value && Number.isInteger(id)
+                  ? [...otherTagIds, id]
+                  : otherTagIds,
+              })
             }}
           >
-            <option value="">추가</option>
-            {available.map((tag) => (
-              <option key={tag.id} value={tag.id}>
-                {tag.name}
+            <option value="">전체</option>
+            {typeOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
               </option>
             ))}
           </select>
         </label>
+        )}
 
         <label className="filter">
           <span className="filter-label">파일 형식</span>
@@ -113,9 +135,24 @@ export function Filters({ state, departments, tags, departmentsLoading, tagsLoad
         </label>
       </div>
 
-      {selectedTags.length > 0 && (
+      {/* Shown only once a year is actually chosen -- that is the moment the
+          result count can drop to zero for a reason the user cannot see.
+          The year comes from a four-digit number in the file name; a document
+          whose name carries no year is deliberately left unlabelled rather
+          than guessed at, so it cannot appear under any year. */}
+      {state.year != null && (
+        <p className="filter-hint">
+          연도는 <strong>파일명에 적힌 4자리 연도</strong>로 판단합니다.
+          파일명에 연도가 없는 문서는 어느 연도에도 포함되지 않습니다.
+        </p>
+      )}
+
+      {/* Free-form tags only -- the document kind lives in its own dropdown.
+          There is no UI to add these yet, but a shared link can carry one, and
+          without a chip the recipient would have no way to clear it. */}
+      {freeFormChips.length > 0 && (
         <ul className="chips" aria-label="선택한 태그">
-          {selectedTags.map((tag) => (
+          {freeFormChips.map((tag) => (
             <li key={tag.id}>
               <button
                 type="button"

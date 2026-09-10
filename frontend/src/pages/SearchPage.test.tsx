@@ -122,7 +122,11 @@ describe('SearchPage', () => {
     await screen.findByText('표시할 문서가 없습니다.')
 
     expect(await screen.findByRole('option', { name: '기획조정실' })).toBeInTheDocument()
-    expect(await screen.findByRole('option', { name: '보안' })).toBeInTheDocument()
+    // Document kinds come from the server too, with the namespace stripped.
+    expect(await screen.findByRole('option', { name: '매뉴얼' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '보고서' })).toBeInTheDocument()
+    // A free-form tag is not a document kind and must not appear there.
+    expect(screen.queryByRole('option', { name: '보안' })).not.toBeInTheDocument()
   })
 
   it('re-searches when a filter changes and returns to page 1', async () => {

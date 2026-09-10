@@ -16,6 +16,7 @@ from pathlib import Path
 import psycopg
 
 from .config import IngestionConfig
+from .document_type import classify_filename
 from .document_year import year_for_file
 from .exceptions import FileUnstableError, FileVanishedError, PathOutsideRootError
 from .file_identity import fingerprint
@@ -149,6 +150,22 @@ class SyncService:
                 conn.rollback()
                 raise
 
+    def _apply_document_type(self, repo, document_id: str, discovered) -> None:
+        """Store the document's kind, derived from its file name.
+
+        Deterministic rules only -- no LLM, no body text. Runs inside the
+        caller's transaction so the kind and the document are committed
+        together.
+        """
+        classification = classify_filename(discovered.filename)
+        changed = repo.set_document_type(document_id, classification.tag_name)
+        if changed:
+            # The file name is not logged: it can itself be sensitive.
+            logger.info(
+                "scan.document_type_set",
+                extra={"code": classification.code, "reason": classification.reason},
+            )
+
     def _create_new_document(self, repo, discovered, finger, result: ScanResult) -> None:
         """Transaction A: document + revision + latest pointer + PARSE job.
 
@@ -173,6 +190,8 @@ class SyncService:
         if repo.enqueue_parse_job(revision_id):
             result.jobs_created += 1
 
+        self._apply_document_type(repo, document_id, discovered)
+
         result.new_documents += 1
         result.new_revisions += 1
         logger.info("scan.document_new", extra={"file_type": discovered.extension})
@@ -184,6 +203,16 @@ class SyncService:
             result.restored += 1
             logger.info("scan.document_restored")
         repo.touch_document(existing.id)
+
+        # Re-applied on every scan, not only at creation.
+        #
+        # A rename is a new source_path, and source_path is the document's
+        # identity, so a renamed file arrives as a *new* document and is
+        # classified there. Re-applying here costs one indexed read when the
+        # kind is already correct, and it is what makes the corpus converge
+        # after the rules change -- otherwise old documents would keep a kind
+        # the current rules would no longer assign.
+        self._apply_document_type(repo, existing.id, discovered)
 
         if latest is not None and latest.content_hash == finger.content_hash:
             # Same bytes. An mtime-only change is not a content change and must

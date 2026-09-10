@@ -18,6 +18,8 @@ from typing import Any, Iterable, Sequence
 import psycopg
 from psycopg.rows import dict_row
 
+from .document_type import TAG_NAMESPACE as TYPE_TAG_PREFIX
+
 #: processing_jobs.job_type values used by ingestion. Both come from the
 #: schema CHECK; no new job types are invented.
 JOB_TYPE_PARSE = "PARSE"
@@ -109,6 +111,106 @@ class IngestionRepository:
                 (title, original_filename, source_path, file_type),
             )
             return str(cur.fetchone()[0])
+
+    # -- document kind -----------------------------------------------------
+    #
+    # Stored as an ordinary tag under a reserved namespace, so the existing
+    # `tag_id` search filter and GET /api/v1/tags work unchanged and neither
+    # the schema nor the API contract has to move.
+
+    def ensure_tag(self, name: str) -> int:
+        """Return the id of ``name``, creating the tag if it is new.
+
+        ON CONFLICT rather than select-then-insert: two scanners registering
+        their first document of a kind at the same time would otherwise race on
+        the unique name.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tags (name) VALUES (%s)
+                ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id
+                """,
+                (name,),
+            )
+            return int(cur.fetchone()[0])
+
+    def set_document_type(self, document_id: str, tag_name: str) -> bool:
+        """Make ``tag_name`` the document's one and only kind tag.
+
+        The invariant -- exactly one kind per document -- is held by this
+        method, not by a database constraint: expressing "unique among tags in
+        this namespace" as a partial index would need a subquery in the index
+        predicate, which PostgreSQL does not allow, and the alternatives (a
+        `kind` column on `tags`, or a trigger) both change a frozen schema.
+
+        So the document row is locked first. Two scanners classifying the same
+        document concurrently serialise here instead of both inserting, which
+        is the only way this table could end up with two kind tags on one
+        document.
+
+        Returns True when the stored kind actually changed.
+        """
+        with self.conn.cursor() as cur:
+            # Lock the document, not the tag rows: the tag rows may not exist
+            # yet, and the document is what the invariant is about.
+            cur.execute("SELECT 1 FROM documents WHERE id = %s FOR UPDATE", (document_id,))
+            if cur.fetchone() is None:
+                return False
+
+            cur.execute(
+                """
+                SELECT t.id, t.name
+                FROM document_tags dt
+                JOIN tags t ON t.id = dt.tag_id
+                WHERE dt.document_id = %s AND t.name LIKE %s
+                """,
+                (document_id, TYPE_TAG_PREFIX + "%"),
+            )
+            current = cur.fetchall()
+
+            if len(current) == 1 and current[0][1] == tag_name:
+                return False  # already correct; do not churn created_at
+
+            if current:
+                cur.execute(
+                    """
+                    DELETE FROM document_tags
+                    WHERE document_id = %s AND tag_id = ANY(%s)
+                    """,
+                    (document_id, [row[0] for row in current]),
+                )
+
+        tag_id = self.ensure_tag(tag_name)
+        with self.conn.cursor() as cur:
+            # source='SYSTEM': assigned by a rule, not by a person. The schema
+            # CHECK requires created_by only for MANUAL, so nothing is invented
+            # here to satisfy it.
+            cur.execute(
+                """
+                INSERT INTO document_tags (document_id, tag_id, source)
+                VALUES (%s, %s, 'SYSTEM')
+                ON CONFLICT (document_id, tag_id, source) DO NOTHING
+                """,
+                (document_id, tag_id),
+            )
+        return True
+
+    def document_type_tag(self, document_id: str) -> str | None:
+        """The document's current kind tag name, or None."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.name FROM document_tags dt
+                JOIN tags t ON t.id = dt.tag_id
+                WHERE dt.document_id = %s AND t.name LIKE %s
+                ORDER BY t.name
+                """,
+                (document_id, TYPE_TAG_PREFIX + "%"),
+            )
+            rows = cur.fetchall()
+        return str(rows[0][0]) if len(rows) == 1 else None
 
     def touch_document(self, document_id: str) -> None:
         """Record that the file was seen, clearing any missing/deleted state.

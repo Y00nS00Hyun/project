@@ -54,7 +54,14 @@ export function errorResponse(code: string, message: string, status: number): Re
 
 export const emptyMetadata = {
   '/api/v1/departments': { items: [{ id: 'dep-1', name: '기획조정실' }] },
-  '/api/v1/tags': { items: [{ id: 12, name: '보안' }], page: 1, size: 100, total: 1 },
+  // The real GET /tags returns document kinds and free-form tags together;
+  // the namespace prefix is what separates them.
+  '/api/v1/tags': {
+    items: [{ id: 12, name: '보안' }, { id: 1, name: '종류:매뉴얼' }, { id: 4, name: '종류:보고서' }],
+    page: 1,
+    size: 100,
+    total: 3,
+  },
 }
 
 export function makeItem(overrides: Partial<SearchItem> = {}): SearchItem {
