@@ -11,7 +11,6 @@ import { FILE_TYPES, type FileType } from '../api/types'
 export interface SearchState {
   q: string
   page: number
-  departmentId: string | null
   year: number | null
   tagIds: number[]
   fileType: FileType | null
@@ -34,7 +33,6 @@ export function parseSearchState(params: URLSearchParams): SearchState {
   return {
     q: params.get('q') ?? '',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
-    departmentId: params.get('department_id') || null,
     year: parseYear(params.get('year')),
     tagIds: params
       .getAll('tag_id')
@@ -47,7 +45,6 @@ export function parseSearchState(params: URLSearchParams): SearchState {
 export function toSearchParams(state: SearchState): URLSearchParams {
   const params = new URLSearchParams()
   if (state.q.trim()) params.set('q', state.q.trim())
-  if (state.departmentId) params.set('department_id', state.departmentId)
   if (state.year != null) params.set('year', String(state.year))
   // Repeated key: the backend ANDs multiple tag_id values.
   for (const id of state.tagIds) params.append('tag_id', String(id))

@@ -8,23 +8,29 @@ import type { SearchState } from '../hooks/useSearchState'
 const EMPTY: SearchState = {
   q: '',
   page: 1,
-  departmentId: null,
   year: null,
   tagIds: [],
   fileType: null,
 }
 
-function render(state: Partial<SearchState> = {}, tags = [{ id: 12, name: '보안' }]) {
+const KIND_TAGS = [
+  { id: 1, name: '종류:매뉴얼' },
+  { id: 4, name: '종류:보고서' },
+]
+
+function renderWithContainer(
+  state: Partial<SearchState> = {},
+  tags = KIND_TAGS,
+) {
   const onChange = vi.fn()
-  renderAt(
-    <Filters
-      state={{ ...EMPTY, ...state }}
-      departments={[{ id: 'dep-1', name: '기획조정실' }]}
-      tags={tags}
-      onChange={onChange}
-    />,
+  const result = renderAt(
+    <Filters state={{ ...EMPTY, ...state }} tags={tags} onChange={onChange} />,
   )
-  return onChange
+  return { ...result, onChange }
+}
+
+function render(state: Partial<SearchState> = {}, tags = [{ id: 12, name: '보안' }]) {
+  return renderWithContainer(state, tags).onChange
 }
 
 describe('year filter', () => {
@@ -140,8 +146,25 @@ describe('document type filter', () => {
 
   it('does not hide the other filters', () => {
     render({}, [])
-    expect(screen.getByLabelText('부서')).toBeInTheDocument()
     expect(screen.getByLabelText('연도')).toBeInTheDocument()
     expect(screen.getByLabelText('파일 형식')).toBeInTheDocument()
+  })
+})
+
+describe('department filter', () => {
+  it('is not offered: the organisation has a single department', () => {
+    // Removed from the UI only. The schema, document_permissions, the ACL
+    // query and GET /api/v1/search?department_id= are all still in place.
+    render({}, [])
+    expect(screen.queryByLabelText('부서')).not.toBeInTheDocument()
+    expect(screen.queryByText('부서')).not.toBeInTheDocument()
+  })
+
+  it('leaves exactly the three intended filters, in order', () => {
+    const { container } = renderWithContainer()
+    const labels = Array.from(container.querySelectorAll('.filter-label')).map(
+      (el) => el.textContent,
+    )
+    expect(labels).toEqual(['연도', '문서 종류', '파일 형식'])
   })
 })

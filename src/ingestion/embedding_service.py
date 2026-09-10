@@ -89,7 +89,23 @@ class EmbeddingService:
         with self.connection_factory() as conn:
             conn.autocommit = False
             try:
-                jobs = IngestionRepository(conn).claim_embed_jobs(limit)
+                repo = IngestionRepository(conn)
+                # Reclaim anything a dead worker left in RUNNING before
+                # claiming new work: otherwise those rows are invisible to
+                # every query in the system and the document silently stops
+                # being processed.
+                recovered = repo.recover_stale_jobs(
+                    self.config.job_stale_seconds, job_type="EMBED"
+                )
+                if recovered["requeued"] or recovered["failed"]:
+                    logger.warning(
+                        "embed.stale_jobs_recovered",
+                        extra={
+                            "requeued": len(recovered["requeued"]),
+                            "failed": len(recovered["failed"]),
+                        },
+                    )
+                jobs = repo.claim_embed_jobs(limit)
                 conn.commit()
             except Exception:
                 conn.rollback()

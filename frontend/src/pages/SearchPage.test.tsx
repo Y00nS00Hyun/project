@@ -103,11 +103,13 @@ describe('SearchPage', () => {
       'fetch',
       mockFetch({ ...emptyMetadata, '/api/v1/search': makeSearchResponse([makeItem()]) }),
     )
-    renderAt(<SearchPage />, '/search?department_id=dep-1&year=2026&tag_id=12&file_type=hwpx')
+    renderAt(<SearchPage />, '/search?year=2026&tag_id=12&file_type=hwpx')
     await screen.findByText(/문서 \d+건/)
 
     const url = searchUrls()[0]
-    expect(url).toContain('department_id=dep-1')
+    // department_id is intentionally absent: the filter was removed from the
+    // UI. The backend still accepts it.
+    expect(url).not.toContain('department_id')
     expect(url).toContain('year=2026')
     expect(url).toContain('tag_id=12')
     expect(url).toContain('file_type=hwpx')
@@ -121,8 +123,7 @@ describe('SearchPage', () => {
     renderAt(<SearchPage />, '/search')
     await screen.findByText('표시할 문서가 없습니다.')
 
-    expect(await screen.findByRole('option', { name: '기획조정실' })).toBeInTheDocument()
-    // Document kinds come from the server too, with the namespace stripped.
+        // Document kinds come from the server too, with the namespace stripped.
     expect(await screen.findByRole('option', { name: '매뉴얼' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '보고서' })).toBeInTheDocument()
     // A free-form tag is not a document kind and must not appear there.
@@ -137,10 +138,10 @@ describe('SearchPage', () => {
     renderAt(<SearchPage />, '/search?q=예산&page=3')
     await screen.findByText('검색 결과 100건')
 
-    await userEvent.selectOptions(screen.getByLabelText('부서'), 'dep-1')
+    await userEvent.selectOptions(await screen.findByLabelText('문서 종류'), '1')
     await waitFor(() => {
       const url = searchUrls().at(-1) ?? ''
-      expect(url).toContain('department_id=dep-1')
+      expect(url).toContain('tag_id=1')
       expect(url).toContain('page=1')
     })
   })

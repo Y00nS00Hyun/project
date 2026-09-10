@@ -16,6 +16,7 @@ from psycopg.rows import dict_row
 
 from ingestion.exceptions import PathOutsideRootError
 from ingestion.file_scanner import resolve_source_path
+from ingestion.path_encoding import display_name
 from search.repository import READ_PERMISSIONS, READ_ACL_PREDICATE as _ACL_PREDICATE
 
 @dataclass(frozen=True)
@@ -148,8 +149,11 @@ class DocumentService:
 
         return DownloadTarget(
             absolute_path=absolute,
-            # Display name only; never the stored path.
-            filename=row["original_filename"],
+            # Display name only; never the stored path. Rendered from the
+            # canonical form so a file whose name is not UTF-8 downloads as
+            # readable Korean rather than as %XX escapes -- the guess only
+            # affects the suggested save-as name, never which file is served.
+            filename=display_name(row["original_filename"]),
             file_type=row["file_type"],
         )
 

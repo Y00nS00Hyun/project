@@ -1,16 +1,22 @@
-import { FILE_TYPES, type DepartmentRef, type FileType, type TagRef } from '../api/types'
+import { FILE_TYPES, type FileType, type TagRef } from '../api/types'
 import { documentTypeOptions } from '../documentTypes'
 import { fileTypeLabel } from '../labels'
 import type { SearchState } from '../hooks/useSearchState'
 
 interface Props {
   state: SearchState
-  departments: DepartmentRef[]
   tags: TagRef[]
-  departmentsLoading?: boolean
   tagsLoading?: boolean
   onChange: (patch: Partial<SearchState>) => void
 }
+
+// No department filter.
+//
+// The organisation runs a single department today, so the control could only
+// ever offer one choice. Everything behind it is kept: departments still exist
+// in the schema, document_permissions still grants by department, the ACL query
+// still resolves it, and GET /api/v1/search still accepts department_id.
+// Bringing the filter back is a change to this file alone.
 
 /**
  * Years offered in the dropdown.
@@ -31,7 +37,7 @@ export function yearOptions(selected: number | null, now = new Date()): number[]
   return years
 }
 
-export function Filters({ state, departments, tags, departmentsLoading, tagsLoading, onChange }: Props) {
+export function Filters({ state, tags, tagsLoading, onChange }: Props) {
   // Document kinds are tags under a reserved namespace, so they arrive on the
   // same GET /tags call and are filtered with the same tag_id parameter. The
   // namespace prefix is an implementation detail and never reaches the screen.
@@ -55,25 +61,6 @@ export function Filters({ state, departments, tags, departmentsLoading, tagsLoad
   return (
     <div className="filters">
       <div className="filter-row">
-        <label className="filter">
-          <span className="filter-label">부서</span>
-          <select
-            value={state.departmentId ?? ''}
-            disabled={departmentsLoading}
-            onChange={(event) => onChange({ departmentId: event.target.value || null })}
-          >
-            <option value="">전체</option>
-            {state.departmentId && !departments.some((dept) => dept.id === state.departmentId) && (
-              <option value={state.departmentId}>선택한 부서</option>
-            )}
-            {departments.map((department) => (
-              <option key={department.id} value={department.id}>
-                {department.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
         <label className="filter">
           <span className="filter-label">연도</span>
           <select

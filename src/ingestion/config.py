@@ -60,6 +60,30 @@ DEFAULT_EMBEDDING_BATCH_SIZE = 8
 #: not a document as far as this system is concerned and is not discovered.
 DISCOVERABLE_EXTENSIONS = ("hwp", "hwpx", "docx", "pdf")
 
+# ---------------------------------------------------------------------------
+# Job recovery
+#
+# A worker that dies mid-job leaves its row in RUNNING. The claim queries take
+# only PENDING rows, so without recovery that document is never processed again
+# and nothing says so -- it simply never appears in search.
+#
+# 900s is chosen against measured durations on the verification corpus: PARSE
+# ran 9.5-25.1s and EMBED 24.2-119.5s for a 9MB, 1720-chunk report. Fifteen
+# minutes is roughly 7.5x the longest observed job, which leaves room for
+# documents several times larger while still bounding how long a crashed job
+# sits invisible.
+#
+# The timeout has to cover the *whole* job, not the time since last progress:
+# there is no heartbeat column and adding one would change the frozen schema,
+# so staleness is measured from started_at. Too short is worse than too long --
+# requeuing a job that is merely slow lets a second worker write the same
+# revision concurrently.
+DEFAULT_JOB_STALE_SECONDS = 900
+
+#: Attempts allowed before a job is given up on. Matches the schema default for
+#: processing_jobs.max_attempts.
+DEFAULT_JOB_MAX_ATTEMPTS = 3
+
 #: How long a file may stay missing before its document is soft-deleted.
 #: The functional spec requires a grace period but leaves the value open, so it
 #: is configurable with a conservative default.
@@ -91,6 +115,8 @@ class IngestionConfig:
 
     follow_symlinks: bool = False
     missing_grace_seconds: int = DEFAULT_MISSING_GRACE_SECONDS
+    job_stale_seconds: int = DEFAULT_JOB_STALE_SECONDS
+    job_max_attempts: int = DEFAULT_JOB_MAX_ATTEMPTS
     discoverable_extensions: tuple[str, ...] = field(default=DISCOVERABLE_EXTENSIONS)
 
     def __post_init__(self) -> None:
@@ -106,6 +132,10 @@ class IngestionConfig:
             raise ConfigurationError("chunk_overlap must be smaller than chunk_max_tokens")
         if self.missing_grace_seconds < 0:
             raise ConfigurationError("missing_grace_seconds must be >= 0")
+        if self.job_stale_seconds < 1:
+            raise ConfigurationError("job_stale_seconds must be >= 1")
+        if self.job_max_attempts < 1:
+            raise ConfigurationError("job_max_attempts must be >= 1")
         if self.embedding_dimension != REQUIRED_EMBEDDING_DIMENSION:
             # The column is VECTOR(384). Letting configuration disagree with the
             # schema would fail per-row at write time, deep inside a batch,
@@ -177,6 +207,8 @@ def config_from_env(shared_root: Path | str | None = None) -> IngestionConfig:
         ),
         follow_symlinks=os.environ.get("SCAN_FOLLOW_SYMLINKS", "").lower() in {"1", "true", "yes"},
         missing_grace_seconds=_int_env("MISSING_GRACE_SECONDS", DEFAULT_MISSING_GRACE_SECONDS),
+        job_stale_seconds=_int_env("PROCESSING_JOB_STALE_SECONDS", DEFAULT_JOB_STALE_SECONDS),
+        job_max_attempts=_int_env("PROCESSING_JOB_MAX_ATTEMPTS", DEFAULT_JOB_MAX_ATTEMPTS),
     )
 
 

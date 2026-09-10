@@ -157,7 +157,9 @@ class SyncService:
         caller's transaction so the kind and the document are committed
         together.
         """
-        classification = classify_filename(discovered.filename)
+        # Classified on the readable name: the rules match Korean keywords, and
+        # a canonical name full of %XX escapes would match none of them.
+        classification = classify_filename(discovered.display_filename)
         changed = repo.set_document_type(document_id, classification.tag_name)
         if changed:
             # The file name is not logged: it can itself be sensitive.
@@ -174,7 +176,9 @@ class SyncService:
         """
         document_id = repo.create_document(
             title=discovered.title,
-            original_filename=discovered.filename,
+            # Canonical, like source_path: original_filename is a text column
+            # and a raw filesystem string may not be valid UTF-8.
+            original_filename=discovered.canonical_filename,
             source_path=discovered.relative_path,
             file_type=discovered.extension,
         )

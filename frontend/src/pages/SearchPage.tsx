@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { fetchDepartments, fetchTags } from '../api/metadata'
+import { fetchTags } from '../api/metadata'
 import { searchDocuments } from '../api/search'
 import { AppNav } from '../components/AppNav'
 import { Filters } from '../components/Filters'
@@ -15,9 +15,13 @@ export function SearchPage() {
   const { state, update, goToPage } = useSearchState()
   const [submission, setSubmission] = useState(0)
 
-  // Filter vocabulary comes from the server -- no department or tag name is
+  // Filter vocabulary comes from the server -- no tag or document-kind name is
   // hard-coded in the client.
-  const departments = useAsyncResource((signal) => fetchDepartments({ signal }), [])
+  //
+  // Departments are deliberately not fetched: the organisation currently has a
+  // single department, so a one-option filter is noise. The backend still
+  // supports department filtering and ACL by department -- see
+  // GET /api/v1/departments -- and re-enabling it is a UI change only.
   const tags = useAsyncResource((signal) => fetchTags({ signal }), [])
 
   const results = useAsyncResource(
@@ -27,7 +31,6 @@ export function SearchPage() {
           q: state.q,
           page: state.page,
           size: DEFAULT_PAGE_SIZE,
-          departmentId: state.departmentId,
           year: state.year,
           tagIds: state.tagIds,
           fileType: state.fileType,
@@ -36,7 +39,7 @@ export function SearchPage() {
       ),
     // An empty q is not an idle state: the backend browses by updated_at, so
     // the first visit shows accessible documents instead of a blank page.
-    [state.q, state.page, state.departmentId, state.year, state.tagIds.join(','), state.fileType, submission],
+    [state.q, state.page, state.year, state.tagIds.join(','), state.fileType, submission],
   )
 
   const onSubmit = useCallback((q: string) => {
@@ -57,14 +60,11 @@ export function SearchPage() {
 
       <Filters
         state={state}
-        departments={departments.data?.items ?? []}
         tags={tags.data?.items ?? []}
-        departmentsLoading={departments.loading}
         tagsLoading={tags.loading}
         onChange={update}
       />
 
-      {departments.error && <ErrorView error={departments.error} />}
       {tags.error && <ErrorView error={tags.error} />}
 
       <section className="results" aria-busy={loading}>

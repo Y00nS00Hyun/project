@@ -3,13 +3,15 @@ import { parseSearchState, toSearchParams } from './useSearchState'
 
 describe('parseSearchState', () => {
   it('reads every filter out of the URL', () => {
+    // department_id is present on purpose: it is no longer a user-facing
+    // filter, so a stale link carrying one must be ignored rather than
+    // silently narrowing the results to a department the user cannot see.
     const state = parseSearchState(
       new URLSearchParams('q=사업계획&page=2&department_id=dep-1&year=2026&tag_id=12&tag_id=13&file_type=hwpx'),
     )
     expect(state).toEqual({
       q: '사업계획',
       page: 2,
-      departmentId: 'dep-1',
       year: 2026,
       tagIds: [12, 13],
       fileType: 'hwpx',
@@ -20,7 +22,6 @@ describe('parseSearchState', () => {
     expect(parseSearchState(new URLSearchParams())).toEqual({
       q: '',
       page: 1,
-      departmentId: null,
       year: null,
       tagIds: [],
       fileType: null,
@@ -49,7 +50,6 @@ describe('toSearchParams', () => {
     const state = {
       q: '사업계획',
       page: 3,
-      departmentId: 'dep-1',
       year: 2026,
       tagIds: [12, 13],
       fileType: 'hwpx' as const,
@@ -61,7 +61,6 @@ describe('toSearchParams', () => {
     const params = toSearchParams({
       q: '',
       page: 1,
-      departmentId: null,
       year: null,
       tagIds: [],
       fileType: null,
@@ -69,11 +68,23 @@ describe('toSearchParams', () => {
     expect(params.toString()).toBe('')
   })
 
+  it('does not put department_id back into the URL', () => {
+    // The department control was removed from the UI; the backend still
+    // supports the parameter, but nothing in the UI should emit it.
+    const params = toSearchParams({
+      q: '사업계획',
+      page: 1,
+      year: 2026,
+      tagIds: [12],
+      fileType: 'hwpx',
+    })
+    expect(params.has('department_id')).toBe(false)
+  })
+
   it('repeats tag_id so the backend ANDs the tags', () => {
     const params = toSearchParams({
       q: '',
       page: 1,
-      departmentId: null,
       year: null,
       tagIds: [12, 13],
       fileType: null,

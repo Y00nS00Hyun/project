@@ -86,6 +86,21 @@ class IngestionService:
             conn.autocommit = False
             repo = IngestionRepository(conn)
             try:
+                # Reclaim anything a dead worker left in RUNNING before
+                # claiming new work: otherwise those rows are invisible to
+                # every query in the system and the document silently stops
+                # being processed.
+                recovered = repo.recover_stale_jobs(
+                    self.config.job_stale_seconds, job_type="PARSE"
+                )
+                if recovered["requeued"] or recovered["failed"]:
+                    logger.warning(
+                        "parse.stale_jobs_recovered",
+                        extra={
+                            "requeued": len(recovered["requeued"]),
+                            "failed": len(recovered["failed"]),
+                        },
+                    )
                 jobs = repo.claim_parse_jobs(limit)
                 conn.commit()
             except Exception:

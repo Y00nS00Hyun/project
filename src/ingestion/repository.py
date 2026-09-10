@@ -621,6 +621,76 @@ class IngestionRepository:
             row = cur.fetchone()
             return str(row[0]) if row else None
 
+    def recover_stale_jobs(
+        self, stale_seconds: int, *, job_type: str | None = None
+    ) -> dict[str, list[str]]:
+        """Return jobs abandoned mid-flight to the queue, or give up on them.
+
+        A worker that is killed -- OOM, container restart, an unhandled
+        exception that escapes the per-job handler -- leaves its row in
+        RUNNING. Both claim queries take only PENDING rows and ``requeue`` only
+        touches FAILED ones, so nothing in the system would ever look at that
+        row again: the document stops being processed and no error is recorded.
+
+        Staleness is measured from ``started_at`` because there is no heartbeat
+        column, so ``stale_seconds`` has to exceed the longest legitimate run of
+        the slowest job, not merely the gap between progress updates.
+
+        A row that still has attempts left goes back to PENDING; one that has
+        exhausted them becomes FAILED, so a job that crashes the worker every
+        time cannot loop forever. Both PARSE and EMBED use this table and the
+        same claim pattern, so recovery is shared rather than duplicated.
+
+        Returns the ids it changed, keyed by what it did with them.
+        """
+        cutoff = "now() - make_interval(secs => %(stale_seconds)s)"
+        params: dict[str, Any] = {"stale_seconds": stale_seconds, "job_type": job_type}
+        # SKIP LOCKED so recovery never blocks on -- or steals -- a row a live
+        # worker is actively holding in its own transaction.
+        select_stale = f"""
+            SELECT id FROM processing_jobs
+            WHERE status = 'RUNNING'
+              AND started_at IS NOT NULL
+              AND started_at <= {cutoff}
+              AND (%(job_type)s::text IS NULL OR job_type = %(job_type)s::text)
+            FOR UPDATE SKIP LOCKED
+        """
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"""
+                WITH stale AS ({select_stale})
+                UPDATE processing_jobs j
+                SET status = 'PENDING',
+                    started_at = NULL,
+                    finished_at = NULL,
+                    next_attempt_at = NULL,
+                    error_message = 'requeued after worker did not finish'
+                FROM stale
+                WHERE j.id = stale.id AND j.attempt_count < j.max_attempts
+                RETURNING j.id
+                """,
+                params,
+            )
+            requeued = [str(r[0]) for r in cur.fetchall()]
+
+            cur.execute(
+                f"""
+                WITH stale AS ({select_stale})
+                UPDATE processing_jobs j
+                SET status = 'FAILED',
+                    finished_at = now(),
+                    error_message = 'worker did not finish and no attempts remain'
+                FROM stale
+                WHERE j.id = stale.id AND j.attempt_count >= j.max_attempts
+                RETURNING j.id
+                """,
+                params,
+            )
+            failed = [str(r[0]) for r in cur.fetchall()]
+
+        return {"requeued": requeued, "failed": failed}
+
     def claim_parse_jobs(self, limit: int = 100) -> list[dict[str, Any]]:
         """Atomically take PENDING PARSE jobs and mark them RUNNING.
 

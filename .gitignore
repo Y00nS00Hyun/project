@@ -30,3 +30,6 @@ backups/
 
 # Relevance evaluation output. Contains real internal document titles.
 artifacts/relevance-eval/
+
+# 참고 자료 모음. 외부 기사/문서 사본이므로 저장소에 두지 않는다.
+자료/
