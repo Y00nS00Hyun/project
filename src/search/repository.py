@@ -106,6 +106,89 @@ eligible AS (
 )
 """
 
+# ---------------------------------------------------------------------------
+# Snippet selection
+#
+# The semantic-nearest chunk is the wrong snippet when the query is not really
+# about the body. Searching "수현" -- a name that appears in three file names
+# and almost nowhere in the text -- returned "(서명) |", "Copyright © | 개정
+# 이력" and a row of table pipes, because short featureless chunks land close
+# to anything in embedding space.
+#
+# So the snippet is chosen in its own right:
+#
+#   1. a chunk that actually contains the query, best trigram score first
+#   2. otherwise the semantic-nearest chunk (the previous behaviour)
+#   3. and if that chunk is a table skeleton or a stub, the document's first
+#      substantial chunk instead
+#
+# "Substantial" is deliberately crude: length, and how much of the text is
+# letters or digits rather than separators. Measured on this corpus, table
+# skeletons score around 0.20 while ordinary prose scores 0.50-0.75, so the
+# threshold sits in a wide empty gap rather than on a tuned edge.
+MIN_SNIPPET_CHARS = 20
+
+#: Fraction of a chunk that must be letters or digits.
+MIN_SNIPPET_WORD_RATIO = 0.35
+
+
+#: A short chunk carrying a table separator is a row fragment or a boilerplate
+#: line ("Copyright © | 개정 이력", "/webapps |"), not an explanation. Longer
+#: pipe-bearing chunks are left alone: a full table row can be worth quoting.
+#:
+#: This makes ~2% of chunks ineligible as a *fallback* snippet. It never
+#: removes a document, and a chunk that contains the query is still shown --
+#: that branch is checked first and does not consult this predicate.
+MAX_SEPARATOR_FRAGMENT_CHARS = 40
+
+
+def _substantial(column: str) -> str:
+    """SQL predicate: is this chunk worth showing a person?
+
+    Deliberately crude -- length, how much of it is letters or digits, and
+    whether it is a short separator fragment. Measured on the verification
+    corpus: table skeletons score around 0.20 on the word ratio while ordinary
+    prose scores 0.50-0.75, so the threshold sits in a wide empty gap.
+    """
+    return f"""(
+        length(btrim({column})) >= {MIN_SNIPPET_CHARS}
+        AND (length({column})
+             - length(regexp_replace({column}, '[가-힣A-Za-z0-9]', '', 'g')))::numeric
+            / GREATEST(length({column}), 1) >= {MIN_SNIPPET_WORD_RATIO}
+        AND NOT (
+            length(btrim({column})) < {MAX_SEPARATOR_FRAGMENT_CHARS}
+            AND position('|' in {column}) > 0
+        )
+    )"""
+
+
+#: Runs once per result row, after ranking -- it only decides what to quote,
+#: never which documents come back.
+#:
+#: It returns nothing when the semantically nearest chunk is already fine and
+#: the query appears nowhere in the body, which is case (2): the caller's
+#: COALESCE then keeps that chunk.
+SNIPPET_LATERAL = f"""
+    SELECT c2.id AS chunk_id, c2.chunk_index, c2.paragraph_start, c2.paragraph_end,
+           c2.section_title, c2.page_number, c2.text AS chunk_text
+    FROM chunks c2
+    WHERE c2.document_revision_id = e.revision_id
+      AND (
+          -- (1) a chunk that actually contains the query
+          (%(query_text)s <> '' AND c2.text ILIKE '%%' || %(query_text)s || '%%')
+          -- (3) or a readable stand-in, but only when the semantic pick is not
+          --     one itself
+          OR (NOT {_substantial('s.chunk_text')} AND {_substantial('c2.text')})
+      )
+    ORDER BY
+      -- Containing the query beats merely being readable.
+      (%(query_text)s <> '' AND c2.text ILIKE '%%' || %(query_text)s || '%%') DESC,
+      CASE WHEN %(query_text)s <> '' AND c2.text ILIKE '%%' || %(query_text)s || '%%'
+           THEN word_similarity(%(query_text)s, c2.text) ELSE 0 END DESC,
+      c2.chunk_index ASC
+    LIMIT 1
+"""
+
 #: Columns every result row carries, so the three paths stay interchangeable.
 _DOCUMENT_COLUMNS = """
     e.document_id, e.revision_id, e.title, e.file_type,
@@ -189,6 +272,8 @@ class SearchRepository:
         *,
         user_id: str,
         query_vector: str,
+        query_text: str | None = None,
+        title_boost_weight: float = 0.0,
         department_id: str | None,
         year: int | None,
         tag_ids: Sequence[int],
@@ -232,16 +317,35 @@ class SearchRepository:
                      c.chunk_index ASC
         )
         SELECT {_DOCUMENT_COLUMNS},
-               s.chunk_id, s.chunk_index, s.paragraph_start, s.paragraph_end,
-               s.section_title, s.page_number, s.chunk_text, s.score,
+               COALESCE(sn.chunk_id, s.chunk_id)               AS chunk_id,
+               COALESCE(sn.chunk_index, s.chunk_index)         AS chunk_index,
+               COALESCE(sn.paragraph_start, s.paragraph_start) AS paragraph_start,
+               COALESCE(sn.paragraph_end, s.paragraph_end)     AS paragraph_end,
+               COALESCE(sn.section_title, s.section_title)     AS section_title,
+               COALESCE(sn.page_number, s.page_number)         AS page_number,
+               COALESCE(sn.chunk_text, s.chunk_text)           AS chunk_text,
+               -- Title boost. Additive, so nothing is removed from the result
+               -- set: a document whose title has no bearing on the query keeps
+               -- its semantic score exactly.
+               s.score + %(title_boost_weight)s
+                       * word_similarity(%(query_text)s, e.title) AS score,
                count(*) OVER () AS total_count
         FROM scored s
         JOIN eligible e ON e.document_id = s.document_id
-        ORDER BY s.score DESC, e.document_id ASC
+        LEFT JOIN LATERAL (
+            {SNIPPET_LATERAL}
+        ) sn ON TRUE
+        ORDER BY score DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
         params = _base_params(user_id, department_id, year, tag_ids, file_type, folder_prefix)
-        params.update({"query_vector": query_vector, "limit": limit, "offset": offset})
+        params.update({
+            "query_vector": query_vector,
+            "query_text": query_text or "",
+            "title_boost_weight": title_boost_weight,
+            "limit": limit,
+            "offset": offset,
+        })
         return self._fetch(sql, params)
 
     # -- lexical -----------------------------------------------------------

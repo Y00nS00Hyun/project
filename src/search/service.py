@@ -130,7 +130,16 @@ class SearchService:
                 **common,
             )
 
-        return repo.semantic_search(query_vector=query_vector, **common)
+        return repo.semantic_search(
+            query_vector=query_vector,
+            # The query text reaches the semantic route too: it ranks the title
+            # and picks the snippet. Retrieval is still vector-only -- nothing
+            # is filtered by these, so a paraphrase query with no shared
+            # vocabulary is unaffected.
+            query_text=request.normalized_query,
+            title_boost_weight=self.config.title_boost_weight,
+            **common,
+        )
 
     @staticmethod
     def _to_document_result(row: dict[str, Any]) -> DocumentResult:

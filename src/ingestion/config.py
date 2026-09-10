@@ -47,6 +47,34 @@ DEFAULT_EMBEDDING_MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
 #: Must equal chunks.embedding VECTOR(384). Validated at construction.
 REQUIRED_EMBEDDING_DIMENSION = 384
 
+# ---------------------------------------------------------------------------
+# Title-aware ranking
+#
+# The semantic route scores a document by its best *body* chunk alone, so a
+# file named "사용자매뉴얼-윤수현" had no advantage whatsoever for the query
+# "수현" -- and because e5 similarities sit in a 0.78-0.82 band, it lost to
+# documents that merely embedded a hair closer. Measured: 제목 회귀 R@1 0.20.
+#
+# The fix is additive, not a gate: every document the semantic route finds is
+# still returned, only reordered. A paraphrase query whose answer shares no
+# words with its title scores 0 here and is unaffected.
+#
+# 0.075 is the smallest weight that fixed every title query, chosen by sweeping
+# 0.0 - 1.0 on the 30-query benchmark plus five title and eight generic
+# queries:
+#
+#     w      제목 R@1   paraphrase R@1   partial R@1
+#     0.000    0.20         0.75            0.67
+#     0.050    0.80         0.75            0.67
+#     0.075    1.00         0.75            0.67      <- smallest that works
+#     0.100    1.00         0.88            0.50      <- partial regresses
+#
+# At 0.10 a common word in a file name starts to overpower semantic relevance:
+# "사용자 계정 관리" promoted 사용자매뉴얼 over the proposal request that
+# actually specifies account management. Smaller is preferred for that reason,
+# not for caution's sake.
+DEFAULT_TITLE_BOOST_WEIGHT = 0.075
+
 #: pg_trgm word_similarity floor for the lexical route. Provisional value from
 #: the Korean search PoC. One global setting: never varied per query and never
 #: exposed through the API.
@@ -112,6 +140,7 @@ class IngestionConfig:
     embedding_allow_download: bool = False
 
     trigram_threshold: float = DEFAULT_TRIGRAM_THRESHOLD
+    title_boost_weight: float = DEFAULT_TITLE_BOOST_WEIGHT
 
     follow_symlinks: bool = False
     missing_grace_seconds: int = DEFAULT_MISSING_GRACE_SECONDS
@@ -149,6 +178,8 @@ class IngestionConfig:
             raise ConfigurationError("embedding_batch_size must be >= 1")
         if not (0.0 < self.trigram_threshold <= 1.0):
             raise ConfigurationError("trigram_threshold must be in (0.0, 1.0]")
+        if self.title_boost_weight < 0.0:
+            raise ConfigurationError("title_boost_weight must be >= 0")
         if self.follow_symlinks:
             # Allowed, but the caller is opting out of the escape protection
             # that keeps a scan inside the shared root.
@@ -204,6 +235,9 @@ def config_from_env(shared_root: Path | str | None = None) -> IngestionConfig:
         in {"1", "true", "yes"},
         trigram_threshold=float(
             os.environ.get("TRIGRAM_THRESHOLD", DEFAULT_TRIGRAM_THRESHOLD)
+        ),
+        title_boost_weight=float(
+            os.environ.get("TITLE_BOOST_WEIGHT", DEFAULT_TITLE_BOOST_WEIGHT)
         ),
         follow_symlinks=os.environ.get("SCAN_FOLLOW_SYMLINKS", "").lower() in {"1", "true", "yes"},
         missing_grace_seconds=_int_env("MISSING_GRACE_SECONDS", DEFAULT_MISSING_GRACE_SECONDS),
