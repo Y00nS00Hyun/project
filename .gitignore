@@ -27,3 +27,6 @@ artifacts/chunking-embedding-poc/*.safetensors
 .env.*
 !.env.example
 backups/
+
+# Relevance evaluation output. Contains real internal document titles.
+artifacts/relevance-eval/

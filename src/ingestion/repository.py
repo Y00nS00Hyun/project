@@ -367,6 +367,22 @@ class IngestionRepository:
             )
             return cur.fetchone()
 
+    def set_document_year(self, revision_id: str, year: int | None) -> None:
+        """Store the year the revision's content is about.
+
+        Written twice in a revision's life: once at discovery from the file
+        name alone, and again after parsing, when the document's own front
+        matter becomes readable and outranks the file name. Kept separate from
+        save_parse_result so the failure path -- which has no text and so no
+        better evidence -- leaves the discovery-time value alone instead of
+        clearing it.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE document_revisions SET document_year = %s WHERE id = %s",
+                (year, revision_id),
+            )
+
     def save_parse_result(
         self,
         *,

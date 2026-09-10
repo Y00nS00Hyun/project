@@ -46,14 +46,16 @@ describe('year filter', () => {
     expect(yearOptions(2011, new Date('2026-09-09'))).toContain(2011)
   })
 
-  it('explains the filename basis only once a year is chosen', () => {
+  it('explains where the year comes from, only once a year is chosen', () => {
     // Silent on the default view; the note appears at the moment the result
     // count can drop for a reason the user cannot see.
     render()
-    expect(screen.queryByText(/파일명에 적힌/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/문서 표지/)).not.toBeInTheDocument()
 
     render({ year: 2026 })
-    expect(screen.getByText(/파일명에 적힌/)).toBeInTheDocument()
+    // The cover date is the primary source; the file name is the fallback.
+    expect(screen.getByText(/문서 표지/)).toBeInTheDocument()
+    expect(screen.getByText(/파일명의 연도를 사용합니다/)).toBeInTheDocument()
     expect(screen.getByText(/어느 연도에도 포함되지 않습니다/)).toBeInTheDocument()
   })
 

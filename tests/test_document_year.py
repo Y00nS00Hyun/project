@@ -101,3 +101,145 @@ class TestDigitBoundaries:
         # The extractor takes a title only; there is no filesystem input it
         # could fall back to.
         assert year_for_file("회의록") is None
+
+
+# ---------------------------------------------------------------------------
+# Front matter takes priority over the file name (policy change).
+# ---------------------------------------------------------------------------
+
+from ingestion.document_year import (  # noqa: E402
+    FRONT_MATTER_BLOCKS,
+    FRONT_MATTER_CHARS,
+    extract_from_front_matter,
+    extract_year,
+    front_matter,
+    year_for_document,
+)
+
+COVER = "[표]\n | | \n완료 보고서 Project Finished Report | | \n[문단]\n{date}\n[문단]\n주식회사 예시\n"
+
+
+class TestFrontMatterWindow:
+    def test_stops_at_the_block_limit(self):
+        text = "".join(f"[문단]\n블록 {i}\n" for i in range(60))
+        window = front_matter(text)
+        assert "블록 0" in window
+        assert f"블록 {FRONT_MATTER_BLOCKS + 5}" not in window
+
+    def test_stops_at_the_character_limit(self):
+        # One enormous cover table must not drag the whole document in.
+        text = "[표]\n" + ("가" * 50_000)
+        assert len(front_matter(text)) <= FRONT_MATTER_CHARS
+
+    def test_empty_text_is_not_an_error(self):
+        assert front_matter("") == ""
+        assert extract_from_front_matter("").year is None
+
+
+class TestFullDatePatterns:
+    @pytest.mark.parametrize(
+        "date",
+        ["2025. 11. 26.", "2025.11.26", "2025-11-26", "2025/11/26", "2025년 11월 26일"],
+    )
+    def test_every_required_pattern_is_recognised(self, date):
+        result = extract_from_front_matter(COVER.format(date=date))
+        assert result.year == 2025
+        assert result.reason == "FULL_DATE_IN_FRONT_MATTER"
+
+    def test_an_impossible_date_is_not_a_date(self):
+        """2025.13.45 is not a date; it must not be read as one."""
+        result = extract_from_front_matter(COVER.format(date="2025.13.45"))
+        assert result.reason != "FULL_DATE_IN_FRONT_MATTER"
+
+    def test_a_year_month_without_a_day_falls_back_to_the_year_rule(self):
+        # "2026. 9." is how the verification corpus's proposal request is dated.
+        result = extract_from_front_matter("[문단]\n제 안 요 청 서\n[문단]\n2026. 9.\n")
+        assert result.year == 2026
+        assert result.reason == "YEAR_IN_FRONT_MATTER"
+
+
+class TestPriorityOrder:
+    def test_front_matter_full_date_beats_the_file_name(self):
+        """The headline case: the report's name says d251126, its cover says 2025."""
+        result = extract_year("완료보고서_d251126", COVER.format(date="2025. 11. 26."))
+        assert result.year == 2025
+        assert result.reason == "FULL_DATE_IN_FRONT_MATTER"
+        assert "2025" in (result.evidence or "")
+
+    def test_front_matter_full_date_beats_a_year_in_the_file_name(self):
+        result = extract_year("2019년 계획서", COVER.format(date="2025-11-26"))
+        assert result.year == 2025
+
+    def test_full_date_beats_a_standalone_year_in_the_same_front_matter(self):
+        """A 2026 report about the 2025 fiscal year is a 2026 document."""
+        text = "[문단]\n2025년도 사업\n[문단]\n작성일 2026.01.15\n"
+        result = extract_from_front_matter(text)
+        assert result.year == 2026
+        assert result.reason == "FULL_DATE_IN_FRONT_MATTER"
+
+    def test_standalone_year_in_front_matter_beats_the_file_name(self):
+        result = extract_year("2019_자료", "[문단]\n제안요청서\n[문단]\n2026. 9.\n")
+        assert result.year == 2026
+        assert result.reason == "YEAR_IN_FRONT_MATTER"
+
+    def test_file_name_is_used_when_the_front_matter_has_none(self):
+        result = extract_year("2026년 사업계획서", "[문단]\n목적\n[문단]\n본 문서는...\n")
+        assert result.year == 2026
+        assert result.reason == "SINGLE_YEAR_IN_TITLE"
+
+    def test_null_when_neither_has_a_year(self):
+        assert year_for_document("매뉴얼", "[문단]\n설치 절차\n") is None
+
+
+class TestAmbiguity:
+    def test_conflicting_full_dates_yield_null(self):
+        text = "[문단]\n2024.01.01\n[문단]\n2025.12.31\n"
+        result = extract_from_front_matter(text)
+        assert result.year is None
+        assert result.reason == "AMBIGUOUS_FULL_DATES"
+
+    def test_the_same_date_written_twice_is_not_a_conflict(self):
+        # The corpus report carries "2025. 11. 26." on the cover and
+        # "2025.11.26" in its document-information table.
+        text = "[문단]\n2025. 11. 26.\n[표]\n작 성 일 | 2025.11.26\n"
+        assert extract_from_front_matter(text).year == 2025
+
+    def test_conflicting_standalone_years_yield_null(self):
+        result = extract_from_front_matter("[문단]\n2024-2025 중기계획\n")
+        assert result.year is None
+        assert result.reason == "AMBIGUOUS_YEARS_IN_FRONT_MATTER"
+
+    def test_ambiguous_front_matter_does_not_fall_through_to_the_file_name(self):
+        """The document contradicts itself; the file name cannot settle it.
+
+        Falling through would assert a year the document never states.
+        """
+        result = extract_year("2019년 보고서", "[문단]\n2024.01.01\n[문단]\n2025.12.31\n")
+        assert result.year is None
+        assert result.reason == "AMBIGUOUS_FULL_DATES"
+
+
+class TestBodyIsNotSearched:
+    def test_years_deep_in_the_body_are_ignored(self):
+        """The corpus report mentions 2008, 2015 and 2016 in its body.
+
+        Scanning the whole document would make the year ambiguous, or worse,
+        pick a year the document is not about.
+        """
+        body = "".join(f"[문단]\n{y}년 관련 내용\n" for y in (2008, 2015, 2016))
+        text = COVER.format(date="2025. 11. 26.") + body * 40
+        assert extract_from_front_matter(text).year == 2025
+
+    def test_a_year_only_in_the_body_is_not_used(self):
+        text = "[문단]\n개요\n" + "[문단]\n채움\n" * 40 + "[문단]\n2013년 자료\n"
+        assert extract_from_front_matter(text).year is None
+
+
+class TestBackwardCompatibility:
+    def test_year_for_file_still_reads_the_file_name_only(self):
+        assert year_for_file("2026년 사업계획서") == 2026
+        assert year_for_file("완료보고서_d251126") is None
+
+    def test_schema_range_is_still_enforced(self):
+        assert extract_from_front_matter("[문단]\n1800.01.01\n").year is None
+        assert MIN_YEAR == 1900 and MAX_YEAR == 2100

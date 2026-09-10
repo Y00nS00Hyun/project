@@ -5,11 +5,19 @@ about* -- "2026년 사업계획서" is 2026. It is explicitly NOT the file's mti
 the row's creation time: a 2026 plan may be edited in 2027 and a 2019 document
 may be discovered today.
 
+Where the year is looked for
+---------------------------
+The cover and the first few blocks of the parsed text, then the file name --
+never the whole document. Scanning the body is actively wrong: the completion
+report in the verification corpus mentions 2008, 2015, 2016 and 2025, and the
+proposal request mentions six different years across its clauses. Only the
+front matter carries the date the document is *about*.
+
 The extractor is rule-based and conservative. When it cannot be confident the
 answer is NULL, because a wrong year silently removes a document from a
-`year=` filtered search and the user has no way to notice.
+``year=`` filtered search and the user has no way to notice.
 
-No NLP or LLM is used.
+No NLP, no OCR and no LLM: only text the parser already produced.
 """
 
 from __future__ import annotations
@@ -21,58 +29,169 @@ from dataclasses import dataclass
 MIN_YEAR = 1900
 MAX_YEAR = 2100
 
+# ---------------------------------------------------------------------------
+# Front matter
+#
+# `extracted_text` is a sequence of "[문단]" and "[표]" blocks, so a block is
+# the natural unit of "the first few paragraphs" -- and it keeps cover tables,
+# which is where a Korean document's date usually sits.
+#
+# 20 blocks / 2000 chars: measured on the verification corpus, where the
+# longest front matter (the completion report's cover, document-information
+# table and revision history) runs 10 blocks and 596 characters before the
+# table of contents. Twice that is comfortable headroom, and the character cap
+# bounds the scan on a 200,000-character report. Sweeping 10/15/20/30 blocks
+# over that corpus produced identical answers, so the exact value is not
+# load-bearing.
+# ---------------------------------------------------------------------------
+FRONT_MATTER_BLOCKS = 20
+FRONT_MATTER_CHARS = 2000
+
+_BLOCK_MARKER = re.compile(r"^\[(?:문단|표)\]$", re.M)
+
 #: A run of exactly four digits with no digit on either side, so a date-like
 #: token (20260908) or an ID (1202612) never contributes a bogus year.
-_FOUR_DIGIT = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+_FOUR_DIGIT = re.compile(r"(?<![0-9])(\d{4})(?![0-9])")
+
+#: Full dates. The year is matched as any four digits and range-checked
+#: afterwards, so 2100 (the schema's upper bound) is not excluded by the
+#: pattern itself. Covers "2025. 11. 26.", "2025.11.26", "2025-11-26",
+#: "2025/11/26" and "2025년 11월 26일". The separators may be spaced.
+_FULL_DATE = re.compile(
+    r"(?<![0-9])(?P<y1>\d{4})\s*[.\-/]\s*(?P<m1>\d{1,2})\s*[.\-/]\s*(?P<d1>\d{1,2})(?![0-9])"
+    r"|(?<![0-9])(?P<y2>\d{4})\s*년\s*(?P<m2>\d{1,2})\s*월\s*(?P<d2>\d{1,2})\s*일"
+)
 
 
 @dataclass(frozen=True)
 class YearExtraction:
-    """Result plus the reason, so behaviour can be explained and tested.
-
-    The reason is not persisted -- there is no provenance column and this stage
-    does not add one (see docs/ingestion-foundation.md, Architecture Notes).
-    """
+    """The decision, plus why -- so a surprising year can be explained."""
 
     year: int | None
     reason: str
+    #: The exact text the year came from. None when nothing matched.
+    evidence: str | None = None
 
-    @property
-    def found(self) -> bool:
-        return self.year is not None
+
+def _in_range(year: int) -> bool:
+    return MIN_YEAR <= year <= MAX_YEAR
+
+
+def front_matter(text: str) -> str:
+    """The leading portion of parsed text a cover date could plausibly sit in.
+
+    Cut at whichever comes first: the start of the 21st block, or 2000
+    characters. Returns "" for empty input.
+    """
+    if not text:
+        return ""
+    starts = [m.start() for m in _BLOCK_MARKER.finditer(text)]
+    end = starts[FRONT_MATTER_BLOCKS] if len(starts) > FRONT_MATTER_BLOCKS else len(text)
+    return text[: min(end, FRONT_MATTER_CHARS)]
+
+
+def _full_dates(text: str) -> list[tuple[int, str]]:
+    """Every valid full date in ``text`` as (year, matched text).
+
+    Month and day are validated so "2025.13.45" is not read as a date. A
+    calendar-exact check (30 vs 31 days) is deliberately not done: the goal is
+    to recognise a date expression, not to audit it.
+    """
+    found: list[tuple[int, str]] = []
+    for match in _FULL_DATE.finditer(text):
+        year = int(match.group("y1") or match.group("y2"))
+        month = int(match.group("m1") or match.group("m2"))
+        day = int(match.group("d1") or match.group("d2"))
+        if _in_range(year) and 1 <= month <= 12 and 1 <= day <= 31:
+            found.append((year, " ".join(match.group(0).split())))
+    return found
+
+
+def _standalone_years(text: str) -> list[tuple[int, str]]:
+    return [
+        (int(m.group(1)), m.group(1))
+        for m in _FOUR_DIGIT.finditer(text)
+        if _in_range(int(m.group(1)))
+    ]
+
+
+def _decide(candidates: list[tuple[int, str]], found: str, ambiguous: str) -> YearExtraction | None:
+    """One distinct year -> take it. Several -> refuse. None -> keep looking."""
+    if not candidates:
+        return None
+    years = {year for year, _ in candidates}
+    if len(years) > 1:
+        # "2025-2026 사업계획", or a cover naming one year and a document-info
+        # table naming another. Picking either is a coin flip, and the wrong
+        # side hides the document from that year's filter.
+        return YearExtraction(None, ambiguous, ", ".join(sorted(str(y) for y in years)))
+    year, evidence = candidates[0]
+    return YearExtraction(year, found, evidence)
+
+
+def extract_from_front_matter(text: str) -> YearExtraction:
+    """Priorities 1 and 2: the parsed document's own front matter.
+
+    A full date outranks a bare year even when the bare year appears first: a
+    cover reading "2025년도 사업" above "작성일 2026.01.15" is a 2026 document
+    about the 2025 fiscal year, and the explicit date is the stronger signal.
+    """
+    window = front_matter(text)
+    if not window:
+        return YearExtraction(None, "NO_TEXT")
+
+    decided = _decide(
+        _full_dates(window), "FULL_DATE_IN_FRONT_MATTER", "AMBIGUOUS_FULL_DATES"
+    )
+    if decided is not None:
+        return decided
+
+    decided = _decide(
+        _standalone_years(window), "YEAR_IN_FRONT_MATTER", "AMBIGUOUS_YEARS_IN_FRONT_MATTER"
+    )
+    if decided is not None:
+        return decided
+
+    return YearExtraction(None, "NO_YEAR_IN_FRONT_MATTER")
 
 
 def extract_document_year(title: str) -> YearExtraction:
-    """Extract a single unambiguous year from a document title.
-
-    Rules, in order:
-
-    1. Collect every standalone 4-digit run in ``1900..2100``.
-    2. Exactly one distinct candidate -> that year.
-    3. More than one distinct candidate -> NULL (ambiguous, e.g. "2025-2026").
-    4. No candidate -> NULL.
-
-    Out-of-range numbers are simply not candidates, so "1800년 자료" yields NULL
-    rather than 1800.
-    """
+    """Priority 3: a single unambiguous four-digit year in the file name."""
     if not title:
         return YearExtraction(None, "EMPTY_TITLE")
 
-    candidates = {
-        int(match.group(1))
-        for match in _FOUR_DIGIT.finditer(title)
-        if MIN_YEAR <= int(match.group(1)) <= MAX_YEAR
-    }
+    decided = _decide(
+        _standalone_years(title), "SINGLE_YEAR_IN_TITLE", "AMBIGUOUS_MULTIPLE_YEARS"
+    )
+    if decided is not None:
+        return decided
+    return YearExtraction(None, "NO_YEAR_IN_RANGE")
 
-    if not candidates:
-        return YearExtraction(None, "NO_YEAR_IN_RANGE")
-    if len(candidates) > 1:
-        # "2025-2026 사업계획": picking either one would be a guess, and the
-        # wrong guess hides the document from a year filter.
-        return YearExtraction(None, "AMBIGUOUS_MULTIPLE_YEARS")
-    return YearExtraction(candidates.pop(), "SINGLE_YEAR_IN_TITLE")
+
+def extract_year(title: str, extracted_text: str | None = None) -> YearExtraction:
+    """The full priority chain.
+
+    1. an explicit full date in the parsed front matter
+    2. an explicit four-digit year in the parsed front matter
+    3. a single explicit four-digit year in the file name
+    4. otherwise NULL
+
+    An *ambiguous* front matter stops the chain rather than falling through to
+    the file name. Two conflicting dates on a cover mean the document does not
+    state one year, and a year inferred from the file name would contradict
+    what the document itself says.
+    """
+    if extracted_text:
+        from_text = extract_from_front_matter(extracted_text)
+        if from_text.year is not None or from_text.reason.startswith("AMBIGUOUS"):
+            return from_text
+    return extract_document_year(title)
 
 
 def year_for_file(title: str) -> int | None:
-    """Convenience wrapper returning just the value stored in the column."""
+    """File name only. Used at discovery time, before the parser has run."""
     return extract_document_year(title).year
+
+
+def year_for_document(title: str, extracted_text: str | None = None) -> int | None:
+    return extract_year(title, extracted_text).year

@@ -137,13 +137,14 @@ export function Filters({ state, departments, tags, departmentsLoading, tagsLoad
 
       {/* Shown only once a year is actually chosen -- that is the moment the
           result count can drop to zero for a reason the user cannot see.
-          The year comes from a four-digit number in the file name; a document
-          whose name carries no year is deliberately left unlabelled rather
-          than guessed at, so it cannot appear under any year. */}
+          The year comes from an explicit date on the document's cover, falling
+          back to the file name; a document that states neither is left
+          unlabelled rather than guessed at, so it appears under no year. */}
       {state.year != null && (
         <p className="filter-hint">
-          연도는 <strong>파일명에 적힌 4자리 연도</strong>로 판단합니다.
-          파일명에 연도가 없는 문서는 어느 연도에도 포함되지 않습니다.
+          연도는 <strong>문서 표지·앞부분의 날짜</strong>를 우선 기준으로 판단하고,
+          없으면 파일명의 연도를 사용합니다.
+          어느 쪽에도 연도가 없는 문서는 어느 연도에도 포함되지 않습니다.
         </p>
       )}
 

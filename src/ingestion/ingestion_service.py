@@ -22,6 +22,7 @@ from document_processing.parsers.exceptions import DocumentParseError
 
 from .chunker import chunk_document
 from .config import IngestionConfig
+from .document_year import extract_year
 from .file_scanner import resolve_source_path
 from .repository import IngestionRepository
 from .tokenizers import HuggingFaceTokenizer, Tokenizer
@@ -151,9 +152,11 @@ class IngestionService:
             result_code = "PARSE_FAILED"
             error_message = f"{type(exc).__name__}: {exc}"
 
-        self._persist(job, revision_id, parsed, result_code, error_message, result)
+        self._persist(job, revision_id, parsed, result_code, error_message, result,
+                      title=state.get("title") or "")
 
-    def _persist(self, job, revision_id, parsed, result_code, error_message, result) -> None:
+    def _persist(self, job, revision_id, parsed, result_code, error_message, result,
+                 *, title: str = "") -> None:
         """Transaction B: parse outcome, chunks and job status together."""
         parse_status = parse_status_for(result_code)
         extracted_text = None
@@ -193,6 +196,17 @@ class IngestionService:
                     ),
                     downstream_status=downstream,
                 )
+                if extracted_text:
+                    # The parsed front matter is now readable and outranks the
+                    # file name, which is all the discovery stage had. A report
+                    # named "완료보고서_d251126" whose cover reads "2025. 11. 26."
+                    # is a 2025 document; nothing is inferred from "d251126".
+                    extraction = extract_year(title, extracted_text)
+                    repo.set_document_year(revision_id, extraction.year)
+                    logger.info(
+                        "parse.document_year",
+                        extra={"reason": extraction.reason, "year": extraction.year},
+                    )
                 # Only TEXT_EXTRACTED is chunked. Everything else has no body
                 # text to chunk, and writing empty chunks would pollute search.
                 written = repo.replace_chunks(revision_id, chunks)
