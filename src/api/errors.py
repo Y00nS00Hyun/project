@@ -29,6 +29,11 @@ ERROR_CODES: dict[str, int] = {
     "CHAT_MESSAGE_TOO_LONG": 422,
     "SEARCH_QUERY_TOO_LONG": 422,
     "RATE_LIMITED": 429,
+    # v1.2. A configured-off feature is not a server fault, and 500 tells a
+    # client to retry something that will never start working. 503 says the
+    # capability is absent, which is what the UI needs in order to disable the
+    # control rather than let a question fail after it is typed.
+    "FEATURE_UNAVAILABLE": 503,
     "INTERNAL_ERROR": 500,
 }
 

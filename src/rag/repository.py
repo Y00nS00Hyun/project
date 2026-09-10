@@ -8,7 +8,7 @@ from psycopg.rows import dict_row
 
 from search.repository import READ_ACL_PREDICATE, READ_PERMISSIONS, SearchRepository
 
-from .exceptions import SessionNotFound
+from .exceptions import DocumentScopeNotFound, SessionNotFound
 from .models import EvidenceChunk, ValidatedAnswer, source_anchor
 from .prompts import PROMPT_VERSION
 from .validation import refusal
@@ -19,6 +19,15 @@ def session_uuid(session_id: str) -> str:
         return str(UUID(session_id))
     except (ValueError, TypeError, AttributeError):
         raise SessionNotFound() from None
+
+
+def _document_uuid(document_id: str) -> str:
+    # A malformed id is treated exactly like an unreadable one, so probing with
+    # junk and probing with a real id give the same answer.
+    try:
+        return str(UUID(document_id))
+    except (ValueError, TypeError, AttributeError):
+        raise DocumentScopeNotFound() from None
 
 
 def source_from_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -32,6 +41,49 @@ def source_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return source
 
 
+def scope_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Shape a session's document scope, hiding the title when unreadable.
+
+    Returning None for an unscoped session keeps "this session is about one
+    document" and "this session is about everything" structurally distinct in
+    the response, rather than signalling it with a null document_id.
+
+    The title is convenience data about a document, so it obeys the same rule
+    as a historical citation: permission is re-checked now, not at the time the
+    session was created. A user who has since lost access sees that the session
+    is scoped -- they created it -- but not what it was scoped to.
+    """
+    if row.get('document_id') is None:
+        return None
+    scope = {'document_id': str(row['document_id']), 'accessible': bool(row['document_accessible'])}
+    if scope['accessible']:
+        scope['title'] = row['document_title']
+    return scope
+
+
+def public_session(row: dict[str, Any]) -> dict[str, Any]:
+    """Replace the raw scope columns with the shaped, ACL-checked scope.
+
+    The internal columns are removed rather than left alongside: document_title
+    holds a value the caller may not be entitled to see, and a field that only
+    the serializer is trusted to drop is one refactor away from leaking.
+    """
+    public = {key: value for key, value in row.items()
+              if key not in ('document_id', 'document_accessible', 'document_title')}
+    public['document_scope'] = scope_from_row(row)
+    return public
+
+
+#: Session columns plus a re-checked document scope. The ACL runs in SQL so an
+#: inaccessible title is never fetched into Python in the first place.
+SESSION_COLUMNS = f"""
+    s.id AS session_id, s.title, s.created_at, s.updated_at, s.document_id,
+    (d.id IS NOT NULL AND NOT d.is_deleted AND {READ_ACL_PREDICATE}) AS document_accessible,
+    CASE WHEN d.id IS NOT NULL AND NOT d.is_deleted AND {READ_ACL_PREDICATE}
+         THEN d.title END AS document_title
+"""
+
+
 class ChatRepository:
     def __init__(self, connection_factory):
         self.connection_factory = connection_factory
@@ -40,40 +92,92 @@ class ChatRepository:
     def _session(conn, user_id: str, session_id: str, *, lock: bool = False):
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                'SELECT id AS session_id, title, created_at, updated_at FROM chat_sessions '
-                'WHERE id = %s AND user_id = %s' + (' FOR UPDATE' if lock else ''),
-                (session_uuid(session_id), user_id),
+                f"""
+                SELECT {SESSION_COLUMNS}
+                FROM chat_sessions s
+                LEFT JOIN documents d ON d.id = s.document_id
+                WHERE s.id = %(session_id)s AND s.user_id = %(user_id)s
+                """
+                # Only the session row is locked. FOR UPDATE cannot be applied
+                # to the outer side of a LEFT JOIN, and the document is read
+                # here for display only -- the retrieval ACL is enforced again
+                # in the candidate query.
+                + (' FOR NO KEY UPDATE OF s' if lock else ''),
+                {
+                    'session_id': session_uuid(session_id), 'user_id': user_id,
+                    'read_permissions': list(READ_PERMISSIONS),
+                },
             )
             row = cur.fetchone()
             if row is None:
                 raise SessionNotFound()
             return dict(row)
 
-    def require_session(self, user_id: str, session_id: str) -> None:
+    def require_session(self, user_id: str, session_id: str) -> dict[str, Any]:
+        """Assert the session belongs to the caller and return its scope."""
         with self.connection_factory() as conn:
-            self._session(conn, user_id, session_id)
+            return self._session(conn, user_id, session_id)
 
-    def create_session(self, user_id: str, title: str | None):
+    def create_session(self, user_id: str, title: str | None, document_id: str | None = None):
+        """Create a session, optionally bound to a single document.
+
+        The permission check is part of the INSERT rather than a SELECT before
+        it. A separate check would leave a window in which access is revoked
+        between the check and the write, and the resulting session would then
+        be scoped to a document the owner may not read.
+        """
+        if document_id is not None:
+            document_id = _document_uuid(document_id)
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                'INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s) '
-                'RETURNING id AS session_id, title, created_at, updated_at',
-                (user_id, title),
+                f"""
+                INSERT INTO chat_sessions (user_id, title, document_id)
+                SELECT %(user_id)s, %(title)s, %(document_id)s::uuid
+                WHERE %(document_id)s::uuid IS NULL
+                   OR EXISTS (
+                        SELECT 1 FROM documents d
+                        WHERE d.id = %(document_id)s::uuid
+                          AND NOT d.is_deleted
+                          AND {READ_ACL_PREDICATE}
+                   )
+                RETURNING id AS session_id, title, created_at, updated_at, document_id
+                """,
+                {
+                    'user_id': user_id, 'title': title, 'document_id': document_id,
+                    'read_permissions': list(READ_PERMISSIONS),
+                },
             )
-            return dict(cur.fetchone())
+            row = cur.fetchone()
+            if row is None:
+                # The WHERE excluded the row: the document does not exist, is
+                # deleted, or the caller cannot read it.
+                raise DocumentScopeNotFound()
+            row = dict(row)
+            # Just verified above, so no second ACL round trip.
+            row['document_accessible'] = row['document_id'] is not None
+            row['document_title'] = None
+            if row['document_id'] is not None:
+                cur.execute('SELECT title FROM documents WHERE id = %s', (row['document_id'],))
+                row['document_title'] = cur.fetchone()['title']
+            return public_session(row)
 
     def list_sessions(self, user_id: str, page: int, size: int):
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cur:
             cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             cur.execute('SELECT count(*) AS total FROM chat_sessions WHERE user_id = %s', (user_id,))
             total = cur.fetchone()['total']
-            cur.execute('''
-                SELECT s.id AS session_id, s.title, s.created_at, s.updated_at,
+            cur.execute(f'''
+                SELECT {SESSION_COLUMNS},
                        (SELECT count(*) FROM chat_messages m WHERE m.session_id = s.id) AS message_count
-                FROM chat_sessions s WHERE s.user_id = %s
-                ORDER BY s.updated_at DESC, s.id ASC LIMIT %s OFFSET %s
-            ''', (user_id, size, (page - 1) * size))
-            return {'items': list(cur.fetchall()), 'page': page, 'size': size, 'total': total}
+                FROM chat_sessions s
+                LEFT JOIN documents d ON d.id = s.document_id
+                WHERE s.user_id = %(user_id)s
+                ORDER BY s.updated_at DESC, s.id ASC
+                LIMIT %(limit)s OFFSET %(offset)s
+            ''', {'user_id': user_id, 'read_permissions': list(READ_PERMISSIONS),
+                  'limit': size, 'offset': (page - 1) * size})
+            return {'items': [public_session(dict(row)) for row in cur.fetchall()],
+                    'page': page, 'size': size, 'total': total}
 
     def load_context(self, user_id: str, chunk_ids: list[str], max_chars: int) -> list[EvidenceChunk]:
         with self.connection_factory() as conn:
@@ -144,7 +248,8 @@ class ChatRepository:
                 message.update(sources=attached, has_inaccessible_sources=hidden, content_hidden=hidden)
                 if hidden:
                     message['content'] = None
-            return {**session, 'messages': {'items': messages, 'page': page, 'size': size, 'total': total}}
+            return {**public_session(session),
+                    'messages': {'items': messages, 'page': page, 'size': size, 'total': total}}
 
     def save_turn(
         self, user_id: str, session_id: str, question: str, result: ValidatedAnswer,

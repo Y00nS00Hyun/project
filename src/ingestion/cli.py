@@ -3,6 +3,8 @@
     python -m ingestion sync    --root /tmp/shared-test
     python -m ingestion parse   --root /tmp/shared-test
     python -m ingestion embed   --root /tmp/shared-test
+    python -m ingestion summarize
+    python -m ingestion resume-summaries
     python -m ingestion run     --root /tmp/shared-test
 
 This exists so the pipeline can be driven by hand and by integration tests. It
@@ -57,9 +59,11 @@ def make_tokenizer(args, config: IngestionConfig):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ingestion", description=__doc__.splitlines()[0])
     parser.add_argument(
-        "command", choices=["sync", "parse", "embed", "run"],
+        "command", choices=["sync", "parse", "embed", "summarize", "resume-summaries", "run"],
         help="sync = discover files; parse = process PARSE jobs; "
-             "embed = process EMBED jobs; run = all three",
+             "embed = process EMBED jobs; summarize = process SUMMARIZE jobs; "
+             "resume-summaries = re-open summaries skipped while generation was "
+             "off; run = sync, parse and embed",
     )
     parser.add_argument("--root", type=Path, default=None,
                         help="shared folder root (defaults to $SHARED_ROOT)")
@@ -97,6 +101,44 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"embed", "run"}:
         # Loads the local model once for the whole batch.
         output["embed"] = EmbeddingService(factory, config).process_pending(args.limit).as_dict()
+
+    # Deliberately not part of "run". Summarizing is the one stage that leaves
+    # the network, so it is never something a general "process everything"
+    # command starts on its own.
+    if args.command == "summarize":
+        from api.dependencies import get_llm_provider
+        from rag.summary_service import SummaryService
+
+        summary_service = SummaryService(factory, config, get_llm_provider())
+        # Reconcile first: revisions that became READY before this stage
+        # existed have no job, so claiming alone would leave them waiting.
+        reconciled = summary_service.reconcile()
+        output["summarize"] = {
+            **summary_service.process_pending(args.limit).as_dict(),
+            "reconciled": reconciled,
+        }
+
+    if args.command == "resume-summaries":
+        # The backfill path for enabling generation after documents have
+        # already been ingested: revisions skipped while there was no provider
+        # go back to PENDING and get a job each. Idempotent -- a revision that
+        # already has a summary is not touched.
+        from .repository import IngestionRepository
+
+        with factory() as conn:
+            conn.autocommit = False
+            repo = IngestionRepository(conn)
+            try:
+                revisions = repo.resume_skipped_summaries(args.limit)
+                queued = sum(
+                    1 for revision_id in revisions
+                    if repo.enqueue_summarize_job(revision_id) is not None
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        output["resume_summaries"] = {"reopened": len(revisions), "queued": queued}
 
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0

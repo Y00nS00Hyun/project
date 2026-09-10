@@ -10,19 +10,29 @@ import { MESSAGE_MAX_LENGTH } from '../api/types'
 export function ChatComposer({
   onSend,
   sending,
+  disabled = false,
+  placeholder,
 }: {
   /** Resolves true when the turn was stored, so the draft can be cleared. */
   onSend: (message: string) => Promise<boolean>
   sending: boolean
+  /**
+   * The feature itself is unavailable, as opposed to a turn being in flight.
+   * The field is disabled rather than hidden so the reader can see what is
+   * missing instead of wondering where it went.
+   */
+  disabled?: boolean
+  placeholder?: string
 }) {
   const [value, setValue] = useState('')
   const fieldId = useId()
   const empty = value.trim().length === 0
+  const blocked = sending || disabled
 
   async function submit() {
     // Guarded here as well as by the disabled button: a double Enter can fire
     // twice before React has re-rendered the disabled state.
-    if (sending || empty) return
+    if (blocked || empty) return
     if (await onSend(value.trim())) setValue('')
   }
 
@@ -52,14 +62,16 @@ export function ChatComposer({
         onKeyDown={onKeyDown}
         maxLength={MESSAGE_MAX_LENGTH}
         rows={3}
-        placeholder="문서에 대해 궁금한 내용을 질문해 보세요. (Enter 전송, Shift+Enter 줄바꿈)"
-        disabled={sending}
+        placeholder={
+          placeholder ?? '문서에 대해 궁금한 내용을 질문해 보세요. (Enter 전송, Shift+Enter 줄바꿈)'
+        }
+        disabled={blocked}
       />
       <div className="chat-composer-footer">
         <span className="chat-counter" aria-hidden="true">
           {value.length} / {MESSAGE_MAX_LENGTH}
         </span>
-        <button className="button button-primary" type="submit" disabled={sending || empty}>
+        <button className="button button-primary" type="submit" disabled={blocked || empty}>
           {sending ? '전송 중...' : '전송'}
         </button>
       </div>

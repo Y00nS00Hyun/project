@@ -24,6 +24,7 @@ from .document_type import TAG_NAMESPACE as TYPE_TAG_PREFIX
 #: schema CHECK; no new job types are invented.
 JOB_TYPE_PARSE = "PARSE"
 JOB_TYPE_EMBED = "EMBED"
+JOB_TYPE_SUMMARIZE = "SUMMARIZE"
 
 #: Statuses that make a job "active"; matches the uq_jobs_active partial index.
 ACTIVE_JOB_STATUSES = ("PENDING", "RUNNING")
@@ -720,16 +721,268 @@ class IngestionRepository:
             return [dict(r) for r in cur.fetchall()]
 
     def finish_job(
-        self, job_id: str, *, status: str, result_code: str | None, error_message: str | None = None
-    ) -> None:
+        self,
+        job_id: str,
+        *,
+        status: str,
+        result_code: str | None,
+        error_message: str | None = None,
+        attempt_count: int | None = None,
+    ) -> bool:
+        """Record a job's outcome. Returns whether this worker still owned it.
+
+        ``attempt_count`` is a fencing token. A worker that hangs long enough
+        for recover_stale_jobs to requeue its job is not dead -- it can wake up
+        afterwards and try to report a result, by which time a second attempt
+        may already be running or finished. Its answer is derived from state
+        that has since been superseded, so writing it would overwrite fresher
+        work with staler work.
+
+        ``status = 'RUNNING'`` alone does not catch this: attempt 1 is requeued,
+        attempt 2 claims the job and sets it RUNNING again, and attempt 1's late
+        write matches. Pairing it with the attempt number the worker was handed
+        at claim time does catch it, because claim_* increments the counter --
+        so the token attempt 1 holds can never again match the row.
+
+        The counter is the existing attempt_count column, so this needs no
+        schema change and no separate lease table.
+
+        A caller that passes no token keeps the previous unconditional
+        behaviour; callers that can be superseded must pass one and must treat
+        False as "discard everything this attempt produced".
+        """
+        clauses = ["id = %s"]
+        params: list[Any] = [status, result_code, error_message, job_id]
+        if attempt_count is not None:
+            # Both halves are needed. The status check rejects a late write
+            # against a job that is merely requeued (PENDING again, counter not
+            # yet advanced); the counter check rejects one against a job a
+            # later attempt has already picked up.
+            clauses.append("status = 'RUNNING'")
+            clauses.append("attempt_count = %s")
+            params.append(attempt_count)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE processing_jobs
+                SET status = %s, result_code = %s, error_message = %s, finished_at = now()
+                WHERE {" AND ".join(clauses)}
+                """,
+                tuple(params),
+            )
+            return cur.rowcount == 1
+
+    # -- summaries ---------------------------------------------------------
+
+    def enqueue_summarize_job(self, revision_id: str) -> str | None:
+        """Queue a SUMMARIZE job for a revision that has just become READY.
+
+        Guarded the same way as EMBED: the WHERE clause refuses a revision that
+        is not READY or is not waiting for a summary, and uq_jobs_active refuses
+        a second active job for the same revision. Two workers promoting the
+        same document therefore produce one job, not two.
+
+        is_ready is the gate rather than embedding_status alone because a
+        summary describes a searchable revision; summarizing text that never
+        became searchable would put a description in front of users for content
+        they cannot find.
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 """
+                INSERT INTO processing_jobs (document_revision_id, job_type, status)
+                SELECT r.id, %s, 'PENDING'
+                FROM document_revisions r
+                WHERE r.id = %s
+                  AND r.is_ready = TRUE
+                  AND r.summary_status = 'PENDING'
+                ON CONFLICT DO NOTHING
+                RETURNING id
+                """,
+                (JOB_TYPE_SUMMARIZE, revision_id),
+            )
+            row = cur.fetchone()
+            return str(row[0]) if row else None
+
+    def skip_summary(self, revision_id: str) -> bool:
+        """Record that no summary will be produced for this revision.
+
+        Used when generation is switched off. Without it a READY revision sits
+        at PENDING forever and every reader is told a summary is being written
+        that nothing will ever write. SKIPPED is an existing value in the
+        summary_status CHECK, so expressing "the feature is off" costs no
+        schema change -- and it stays a statement about this revision, while
+        whether the feature is currently available is answered by the API.
+
+        Only PENDING is moved. A SUCCESS or FAILED summary from a time when
+        generation was on is left exactly as it is.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE document_revisions
+                SET summary_status = 'SKIPPED'
+                WHERE id = %s AND summary_status = 'PENDING'
+                """,
+                (revision_id,),
+            )
+            return cur.rowcount == 1
+
+    def resume_skipped_summaries(self, limit: int = 1000) -> list[str]:
+        """Re-open revisions that were skipped while generation was off.
+
+        The backfill path for enabling the feature later. Restricted to READY
+        revisions that hold no summary, so it cannot disturb a revision that
+        was skipped because it never produced text, and cannot overwrite a
+        summary that already exists.
+
+        Returns the revision ids it re-opened; the caller enqueues the jobs.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE document_revisions
+                SET summary_status = 'PENDING'
+                WHERE id IN (
+                    SELECT id FROM document_revisions
+                    WHERE is_ready = TRUE
+                      AND summary_status = 'SKIPPED'
+                      AND summary IS NULL
+                    ORDER BY created_at
+                    LIMIT %s
+                    FOR UPDATE SKIP LOCKED
+                )
+                RETURNING id
+                """,
+                (limit,),
+            )
+            return [str(r[0]) for r in cur.fetchall()]
+
+    def unsummarized_revisions(self, limit: int = 1000) -> list[str]:
+        """READY revisions still waiting for a summary that nothing will start.
+
+        Needed because a revision can reach READY without passing through the
+        step that queues the work: revisions ingested before summaries existed,
+        and revisions whose SUMMARIZE job was lost. Left alone, each one sits at
+        PENDING forever and every reader is told a summary is coming.
+
+        Rows with an active job are excluded, so reconciling repeatedly is
+        harmless and never duplicates work.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.id
+                FROM document_revisions r
+                WHERE r.is_ready = TRUE
+                  AND r.summary_status = 'PENDING'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM processing_jobs j
+                      WHERE j.document_revision_id = r.id
+                        AND j.job_type = %s
+                        AND j.status = ANY(%s)
+                  )
+                ORDER BY r.created_at
+                LIMIT %s
+                """,
+                (JOB_TYPE_SUMMARIZE, list(ACTIVE_JOB_STATUSES), limit),
+            )
+            return [str(r[0]) for r in cur.fetchall()]
+
+    def claim_summarize_jobs(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Take PENDING SUMMARIZE jobs and mark them RUNNING.
+
+        Returns attempt_count with each job because the summary worker calls an
+        external service and can be superseded while waiting; the number is the
+        fencing token it must hand back to finish_job.
+        """
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
                 UPDATE processing_jobs
-                SET status = %s, result_code = %s, error_message = %s, finished_at = now()
+                SET status = 'RUNNING',
+                    attempt_count = attempt_count + 1,
+                    started_at = now()
+                WHERE id IN (
+                    SELECT id FROM processing_jobs
+                    WHERE job_type = %s AND status = 'PENDING'
+                      AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+                      AND attempt_count < max_attempts
+                    ORDER BY created_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT %s
+                )
+                RETURNING id, document_revision_id, attempt_count, max_attempts
+                """,
+                (JOB_TYPE_SUMMARIZE, limit),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    def mark_summary_running(self, revision_id: str) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE document_revisions SET summary_status = 'RUNNING' "
+                "WHERE id = %s AND summary_status = 'PENDING'",
+                (revision_id,),
+            )
+
+    def summary_input(self, revision_id: str) -> dict[str, Any] | None:
+        """The text a summary is built from, as ordered chunks.
+
+        Chunks rather than extracted_text: they carry the section titles the
+        hierarchical summarizer groups by, and they are the same units search
+        and citation already work in, so a summary is built from exactly what
+        the rest of the system considers this revision to contain.
+        """
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT r.id, r.document_id, d.title, r.summary_status
+                FROM document_revisions r
+                JOIN documents d ON d.id = r.document_id
+                WHERE r.id = %s
+                """,
+                (revision_id,),
+            )
+            revision = cur.fetchone()
+            if revision is None:
+                return None
+            cur.execute(
+                "SELECT chunk_index, section_title, text FROM chunks "
+                "WHERE document_revision_id = %s ORDER BY chunk_index",
+                (revision_id,),
+            )
+            return {**dict(revision), "chunks": [dict(r) for r in cur.fetchall()]}
+
+    def save_summary_result(
+        self,
+        *,
+        revision_id: str,
+        status: str,
+        summary: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        prompt_version: str | None = None,
+    ) -> None:
+        """Write one revision's summary. Cannot touch any other revision.
+
+        Rev N's summary belongs to rev N: the WHERE clause names a single
+        revision id, so promoting a newer revision adds a summary rather than
+        replacing the one an earlier answer or an earlier reader saw.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE document_revisions
+                SET summary_status = %s,
+                    summary = COALESCE(%s, summary),
+                    summary_provider = COALESCE(%s, summary_provider),
+                    summary_model = COALESCE(%s, summary_model),
+                    summary_prompt_version = COALESCE(%s, summary_prompt_version),
+                    summarized_at = CASE WHEN %s = 'SUCCESS' THEN now() ELSE summarized_at END
                 WHERE id = %s
                 """,
-                (status, result_code, error_message, job_id),
+                (status, summary, provider, model, prompt_version, status, revision_id),
             )
 
     def reset_job_for_retry(self, job_id: str) -> None:

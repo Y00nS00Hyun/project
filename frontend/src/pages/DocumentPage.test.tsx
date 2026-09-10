@@ -6,6 +6,7 @@ import {
   errorResponse,
   jsonResponse,
   makeDetail,
+  NO_CHAT_SESSIONS,
   makeRevision,
   mockFetch,
   renderAt,
@@ -43,6 +44,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/revisions': revisionsResponse(),
         '/api/v1/documents/doc-1': makeDetail(),
       }),
@@ -59,6 +61,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/revisions': revisionsResponse(),
         '/api/v1/documents/doc-1': makeDetail(),
       }),
@@ -82,6 +85,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/revisions': revisionsResponse([
           makeRevision({
             revision_id: 'rev-3',
@@ -119,6 +123,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/download': fileResponse,
         '/api/v1/documents/doc-1/revisions': revisionsResponse(),
         '/api/v1/documents/doc-1': makeDetail(),
@@ -142,6 +147,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/download': () =>
           errorResponse('DOCUMENT_NOT_DOWNLOADABLE', '원본 파일을 찾을 수 없습니다.', 409),
         '/api/v1/documents/doc-1/revisions': revisionsResponse(),
@@ -158,6 +164,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/revisions': revisionsResponse(),
         '/api/v1/documents/doc-1': makeDetail({ downloadable: false }),
       }),
@@ -170,6 +177,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/revisions': () =>
           errorResponse('DOCUMENT_NOT_FOUND', '문서를 찾을 수 없습니다.', 404),
         '/api/v1/documents/doc-1': () =>
@@ -188,6 +196,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/revisions': () =>
           errorResponse('UNAUTHENTICATED', '인증이 필요합니다.', 401),
         '/api/v1/documents/doc-1': () =>
@@ -202,6 +211,7 @@ describe('DocumentPage', () => {
     vi.stubGlobal(
       'fetch',
       mockFetch({
+        ...NO_CHAT_SESSIONS,
         '/api/v1/documents/doc-1/revisions': revisionsResponse(),
         '/api/v1/documents/doc-1': makeDetail(),
       }),
@@ -218,6 +228,7 @@ describe('DocumentPage', () => {
   it('fetches older revisions using the history pagination envelope', async () => {
     let page = 0
     vi.stubGlobal('fetch', mockFetch({
+        ...NO_CHAT_SESSIONS,
       '/api/v1/documents/doc-1/revisions': () => jsonResponse({
         items: [makeRevision({ revision_no: ++page === 1 ? 21 : 1 })],
         page, size: 20, total: 21,
@@ -235,6 +246,7 @@ describe('DocumentPage', () => {
 
   it('uses the login state when authentication expires during download', async () => {
     vi.stubGlobal('fetch', mockFetch({
+        ...NO_CHAT_SESSIONS,
       '/api/v1/documents/doc-1/download': () => errorResponse('UNAUTHENTICATED', '인증 만료', 401),
       '/api/v1/documents/doc-1/revisions': revisionsResponse(),
       '/api/v1/documents/doc-1': makeDetail(),

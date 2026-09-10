@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ApiClientError } from '../api/client'
 import { downloadDocument, fetchDocument, fetchRevisions } from '../api/documents'
+import { DocumentChat } from '../components/DocumentChat'
+import { DocumentSummary } from '../components/DocumentSummary'
 import { RevisionList } from '../components/RevisionList'
 import { Pagination } from '../components/Pagination'
 import { ErrorView, LoadingState } from '../components/StateViews'
@@ -140,6 +142,23 @@ function DocumentContent({ documentId }: { documentId: string }) {
       )}
       {!doc.is_searchable && (
         <p className="notice">이 문서는 아직 검색에 사용할 수 있는 본문이 없습니다.</p>
+      )}
+
+      <DocumentSummary summary={doc.summary} />
+
+      {doc.is_searchable && (
+        // Only when there is a current revision to answer from. Offering the
+        // box for a document with no searchable body would invite questions
+        // that can only be refused.
+        //
+        // Rendered even when the capability is off: the panel then explains
+        // that the feature is disabled, which is more use than a section that
+        // silently is not there.
+        <DocumentChat
+          documentId={doc.document_id}
+          title={doc.title}
+          available={doc.chat.available}
+        />
       )}
 
       <section className="section">

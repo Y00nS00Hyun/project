@@ -74,6 +74,12 @@ class SearchRequest:
     #: Validated in __post_init__, never interpolated into SQL.
     folder_path: str | None = None
 
+    #: Hard scope: when set, only this document can produce candidates. Unlike
+    #: the fields above this is not a user-chosen filter -- it is set by the
+    #: server from a chat session's stored scope, and it is applied in the same
+    #: SQL stage as the ACL. No API request field maps onto it.
+    document_id: str | None = None
+
     page: int = 1
     size: int = DEFAULT_PAGE_SIZE
 

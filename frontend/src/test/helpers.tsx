@@ -41,6 +41,17 @@ export function mockFetch(
   })
 }
 
+/**
+ * The document page asks for the caller's sessions to find an existing
+ * conversation about the document being viewed. Tests that are not about chat
+ * still have to answer that request: an unstubbed route renders an error
+ * panel, which would then be indistinguishable from the error the test is
+ * actually asserting on.
+ */
+export const NO_CHAT_SESSIONS = {
+  '/api/v1/chat/sessions': { items: [], page: 1, size: 20, total: 0 },
+}
+
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -116,6 +127,17 @@ export function makeDetail(overrides: Partial<DocumentDetail> = {}): DocumentDet
     latest_revision: { revision_id: 'rev-3', revision_no: 3, created_at: '2026-09-01T00:00:00Z' },
     is_searchable: true,
     downloadable: true,
+    // The common case: generation is on and this revision has been summarized.
+    // Tests that care about a different state override the whole object.
+    summary: {
+      state: 'SUCCESS',
+      content: '2026년 AI 문서관리 사업의 배경과 예산 계획을 정리한 문서입니다.',
+      generated_at: '2026-08-30T05:00:00Z',
+      available: true,
+      revision_id: 'rev-2',
+    },
+    // Both document-text features share one capability, so the fixture does too.
+    chat: { available: true },
     ...overrides,
   }
 }
@@ -145,6 +167,8 @@ export function makeSession(overrides: Partial<ChatSessionSummary> = {}): ChatSe
     created_at: '2026-09-01T01:00:00Z',
     updated_at: '2026-09-01T02:00:00Z',
     message_count: 2,
+    // An ordinary whole-corpus session. Scoped ones pass document_scope.
+    document_scope: null,
     ...overrides,
   }
 }
@@ -198,6 +222,7 @@ export function makeSessionDetail(
     title: '2026년 사업계획',
     created_at: '2026-09-01T01:00:00Z',
     updated_at: '2026-09-01T02:00:00Z',
+    document_scope: null,
     messages: { items: messages, page: 1, size: 50, total: messages.length },
     ...overrides,
   }

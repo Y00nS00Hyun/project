@@ -5,11 +5,14 @@ from typing import TypeVar
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from rag.exceptions import GenerationRateLimited, GenerationUnavailable, SessionNotFound
+from rag.exceptions import (
+    DocumentScopeNotFound, GenerationDisabled, GenerationRateLimited,
+    GenerationUnavailable, SessionNotFound,
+)
 from rag.service import ChatService, RagService
 
 from ..dependencies import AuthenticatedUser, get_chat_service, get_rag_service, require_user
-from ..errors import ApiError, validation_error
+from ..errors import ApiError, document_not_found, validation_error
 from ..schemas.chat import (
     CreateSessionRequest, SendMessageRequest, SendMessageResponse,
     SessionDetail, SessionListResponse, SessionOut,
@@ -22,12 +25,29 @@ router = APIRouter(prefix='/chat/sessions', tags=['chat'], responses={
     code: {'model': ErrorResponse} for code in (401, 404, 422, 500)
 })
 
+#: Only the message route can be refused for a disabled provider; the session
+#: routes never generate anything.
+GENERATION_RESPONSES = {
+    429: {'model': ErrorResponse}, 503: {'model': ErrorResponse},
+}
+
 
 def _call(request: Request, operation: Callable[[], T]) -> T:
     try:
         return operation()
     except SessionNotFound:
         raise ApiError('CHAT_SESSION_NOT_FOUND', '채팅 세션을 찾을 수 없습니다.') from None
+    except DocumentScopeNotFound:
+        # Same response whether the document is missing, deleted or merely not
+        # permitted -- otherwise the error itself confirms it exists.
+        raise document_not_found() from None
+    except GenerationDisabled:
+        # Not an error condition: the deployment is configured this way. The
+        # client is told plainly so it can disable the control instead of
+        # letting the next question fail the same way.
+        raise ApiError(
+            'FEATURE_UNAVAILABLE', 'AI 질문 기능이 현재 비활성화되어 있습니다.'
+        ) from None
     except GenerationRateLimited:
         # Upstream provider throttled us. RATE_LIMITED already exists in the
         # contract's closed code set, so no new code is invented for it.
@@ -54,7 +74,10 @@ def create_session(
     service: ChatService = Depends(get_chat_service),
 ):
     _parameters(request, set())
-    return _call(request, lambda: service.create_session(user.user_id, body.title))
+    return _call(request, lambda: service.create_session(
+        user.user_id, body.title,
+        str(body.document_id) if body.document_id is not None else None,
+    ))
 
 
 @router.get('', response_model=SessionListResponse, summary='내 채팅 세션 목록')
@@ -82,8 +105,8 @@ def get_session(
 @router.post('/{session_id}/messages', response_model=SendMessageResponse, status_code=201,
              summary='문서 근거형 질문과 답변',
              # Only this route reaches an LLM provider, so only this route can
-             # be throttled by one.
-             responses={429: {'model': ErrorResponse}})
+             # be throttled by one or refused for want of one.
+             responses=GENERATION_RESPONSES)
 def send_message(
     request: Request, session_id: str, body: SendMessageRequest,
     user: AuthenticatedUser = Depends(require_user),

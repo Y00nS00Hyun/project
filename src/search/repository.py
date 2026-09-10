@@ -84,6 +84,13 @@ eligible AS (
       AND d.current_revision_id IS NOT NULL
       AND r.is_ready = TRUE
       AND {READ_ACL_PREDICATE}
+      -- Document scope, for a chat session bound to one document. It sits
+      -- beside the ACL rather than in the filter block below because it is
+      -- the same kind of rule: not a preference the caller expressed, but a
+      -- boundary the caller cannot cross. A scoped session that reaches this
+      -- CTE can produce candidates from exactly one document, so no prompt
+      -- wording and no later filtering step can widen it.
+      AND (%(scope_document_id)s::uuid IS NULL OR d.id = %(scope_document_id)s::uuid)
       AND (%(department_id)s::uuid IS NULL OR d.department_id = %(department_id)s::uuid)
       AND (%(year)s::int IS NULL OR r.document_year = %(year)s::int)
       AND (%(file_type)s::text IS NULL OR d.file_type = %(file_type)s::text)
@@ -204,10 +211,14 @@ def _base_params(
     tag_ids: Sequence[int],
     file_type: str | None = None,
     folder_prefix: str | None = None,
+    scope_document_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "user_id": user_id,
         "read_permissions": list(READ_PERMISSIONS),
+        # None for ordinary search. Set only by a document-scoped chat session,
+        # and enforced in ELIGIBLE_CTE next to the ACL.
+        "scope_document_id": scope_document_id,
         "department_id": department_id,
         "year": year,
         "file_type": file_type,
@@ -236,6 +247,7 @@ class SearchRepository:
         tag_ids: Sequence[int],
         file_type: str | None,
         folder_prefix: str | None = None,
+        scope_document_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -261,7 +273,10 @@ class SearchRepository:
         ORDER BY e.updated_at DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids, file_type, folder_prefix)
+        params = _base_params(
+            user_id, department_id, year, tag_ids, file_type, folder_prefix,
+            scope_document_id,
+        )
         params.update({"limit": limit, "offset": offset})
         return self._fetch(sql, params)
 
@@ -279,6 +294,7 @@ class SearchRepository:
         tag_ids: Sequence[int],
         file_type: str | None,
         folder_prefix: str | None = None,
+        scope_document_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -338,7 +354,10 @@ class SearchRepository:
         ORDER BY score DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids, file_type, folder_prefix)
+        params = _base_params(
+            user_id, department_id, year, tag_ids, file_type, folder_prefix,
+            scope_document_id,
+        )
         params.update({
             "query_vector": query_vector,
             "query_text": query_text or "",
@@ -361,6 +380,7 @@ class SearchRepository:
         tag_ids: Sequence[int],
         file_type: str | None,
         folder_prefix: str | None = None,
+        scope_document_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -420,7 +440,10 @@ class SearchRepository:
         ORDER BY m.score DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids, file_type, folder_prefix)
+        params = _base_params(
+            user_id, department_id, year, tag_ids, file_type, folder_prefix,
+            scope_document_id,
+        )
         params.update({"query_text": query_text, "limit": limit, "offset": offset})
         return self._fetch(sql, params)
 

@@ -223,6 +223,7 @@ class EmbeddingService:
                 # is_ready is now true for this revision, so promotion runs in
                 # the same transaction and sees a consistent view.
                 promoted = repo.promote_current_revision(str(document_id))
+                summarizing = self._request_summary(repo, revision_id)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -237,8 +238,40 @@ class EmbeddingService:
         logger.info(
             "embed.revision_done",
             extra={"chunks": written, "model": self.config.embedding_model,
-                   "promoted": bool(promoted)},
+                   "promoted": bool(promoted), "summarizing": summarizing},
         )
+
+    @staticmethod
+    def _request_summary(repo: IngestionRepository, revision_id: str) -> bool:
+        """Ask for a summary of the revision that just became READY, or record
+        that there will not be one.
+
+        Runs in the caller's transaction, so a revision cannot become READY
+        without one of the two happening. Which one depends on whether this
+        deployment may generate a summary from this document at all -- both a
+        provider being configured and this corpus being cleared to leave the
+        network. Queueing a job without those would leave the revision at
+        'summary pending' forever, and readers would be shown a summary being
+        written that nothing was ever going to write.
+
+        SKIPPED here is not permanent -- resume_skipped_summaries re-opens
+        these revisions if generation is turned on later.
+
+        Note what this does NOT do: it never sends anything anywhere. The
+        decision is made from configuration alone, before any document text is
+        read for a prompt.
+
+        The import is local because ingestion is the layer everything else is
+        built on and must not depend on the RAG package to run. rag.provider
+        only reads environment variables; nothing is loaded and no request is
+        made either way.
+        """
+        from rag.provider import document_generation_enabled
+
+        if not document_generation_enabled():
+            repo.skip_summary(revision_id)
+            return False
+        return repo.enqueue_summarize_job(revision_id) is not None
 
     def _fail(self, job, revision_id, result, result_code, message) -> None:
         """Mark the revision and job FAILED, leaving current_revision_id alone.

@@ -142,6 +142,10 @@ class TestErrorContract:
             "DOCUMENT_NOT_FOUND", "REVISION_NOT_FOUND", "DOCUMENT_NOT_DOWNLOADABLE",
             "CHAT_SESSION_NOT_FOUND", "CHAT_MESSAGE_TOO_LONG", "SEARCH_QUERY_TOO_LONG",
             "RATE_LIMITED", "INTERNAL_ERROR",
+            # v1.2: the one addition to v1's set. Needed because a feature that
+            # is configured off is not a server fault, and reporting it as one
+            # leaves a client with nothing better to do than retry forever.
+            "FEATURE_UNAVAILABLE",
         }
 
     def test_each_code_maps_to_its_documented_status(self):
@@ -177,19 +181,74 @@ class TestSearchParameters:
         pytest.fail("size parameter not declared")
 
 
+class TestDocumentSummaryContract:
+    def test_detail_carries_the_precomputed_summary(self, spec):
+        schemas = response_schemas(spec)
+        assert 'summary' in schemas['DocumentDetailOut']['properties']
+        assert 'chat' in schemas['DocumentDetailOut']['properties']
+        assert set(schemas['ChatCapabilityOut']['properties']) == {'available'}
+        assert set(schemas['SummaryOut']['properties']) == {
+            'state', 'content', 'generated_at', 'available', 'revision_id',
+        }
+
+    def test_summary_does_not_expose_the_provider_or_the_model(self, spec):
+        schemas = response_schemas(spec)
+        # v1.2 decision 2: which service wrote a summary is an operational fact
+        # about our pipeline, not something a reader should weigh an answer by.
+        assert not {'provider', 'model', 'summary_provider', 'summary_model',
+                    'prompt_version', 'summary_prompt_version'} & set(
+                        schemas['SummaryOut']['properties'])
+
+    def test_availability_is_a_capability_field_not_a_summary_state(self, spec):
+        schemas = response_schemas(spec)
+        # Supplement A: "generation is off in this deployment" is answered here,
+        # so it never needs a new value in the database status CHECK.
+        assert schemas['SummaryOut']['properties']['available']['type'] == 'boolean'
+        assert schemas['SummaryOut']['properties']['state']['type'] == 'string'
+
+
+class TestDisabledGenerationContract:
+    def test_a_disabled_feature_is_not_a_server_error(self, spec):
+        from api.errors import ERROR_CODES
+
+        # 500 tells a client to retry something that will never start working,
+        # and gives a UI nothing to disable a control with.
+        assert ERROR_CODES['FEATURE_UNAVAILABLE'] == 503
+
+    def test_only_the_message_route_declares_it(self, spec):
+        paths = spec['paths']
+        messages = f'{API_PREFIX}/chat/sessions/{{session_id}}/messages'
+        assert '503' in paths[messages]['post']['responses']
+        # The session routes generate nothing, so they can never be refused for
+        # want of a provider.
+        assert '503' not in paths[f'{API_PREFIX}/chat/sessions']['post']['responses']
+        assert '503' not in paths[f'{API_PREFIX}/search']['get']['responses']
+
+
 class TestChatContract:
     def test_request_shapes_forbid_client_identity(self, spec):
         schemas = response_schemas(spec)
-        for name, fields in [('CreateSessionRequest', {'title'}), ('SendMessageRequest', {'message'})]:
+        # v1.2 adds CreateSessionRequest.document_id. SendMessageRequest is
+        # deliberately unchanged: the scope is fixed when the session is
+        # created, so a per-message document_id could never widen it.
+        for name, fields in [
+            ('CreateSessionRequest', {'title', 'document_id'}),
+            ('SendMessageRequest', {'message'}),
+        ]:
             assert set(schemas[name]['properties']) == fields
             assert schemas[name]['additionalProperties'] is False
         assert 'required' not in schemas['CreateSessionRequest']
         message = schemas['SendMessageRequest']['properties']['message']
         assert message['minLength'] == 1 and message['maxLength'] == 4000
 
+    def test_no_request_body_carries_an_identity(self, spec):
+        schemas = response_schemas(spec)
+        for name in ('CreateSessionRequest', 'SendMessageRequest'):
+            assert not {'user_id', 'department_id', 'user'} & set(schemas[name]['properties'])
+
     def test_response_shapes_match_contract(self, spec):
         schemas = response_schemas(spec)
-        session = {'session_id', 'title', 'created_at', 'updated_at'}
+        session = {'session_id', 'title', 'created_at', 'updated_at', 'document_scope'}
         assert set(schemas['SessionOut']['properties']) == session
         assert set(schemas['SessionDetail']['properties']) == session | {'messages'}
         assert set(schemas['SessionListItem']['properties']) == session | {'message_count'}
@@ -199,6 +258,17 @@ class TestChatContract:
         assert schemas['SendMessageResponse']['properties']['refused']['type'] == 'boolean'
         assert schemas['AssistantMessage']['properties']['refused']['type'] == 'boolean'
         assert schemas['AssistantMessage']['properties']['content_hidden']['type'] == 'boolean'
+
+    def test_scope_omits_the_title_when_the_document_is_not_readable(self, spec):
+        schemas = response_schemas(spec)
+        # Same rule as InaccessibleSource: the title is convenience data about
+        # a document, so losing read access must also hide the name.
+        assert set(schemas['InaccessibleScope']['properties']) == {'document_id', 'accessible'}
+        assert set(schemas['AccessibleScope']['properties']) == {
+            'document_id', 'accessible', 'title',
+        }
+        scope = schemas['SessionOut']['properties']['document_scope']
+        assert 'provider' not in str(scope) and 'model' not in str(scope)
 
     def test_sources_omit_inaccessible_metadata_and_reuse_anchor(self, spec):
         schemas = response_schemas(spec)

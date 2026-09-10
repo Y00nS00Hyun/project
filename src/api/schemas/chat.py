@@ -12,6 +12,35 @@ from .common import Anchor
 class CreateSessionRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     title: str | None = None
+    #: Optional. Present -> the session may only draw on this one document;
+    #: absent -> the existing whole-corpus session. Checked against the
+    #: caller's read permission before the session is created.
+    #:
+    #: strict is relaxed for this field alone. JSON has no UUID type, so under
+    #: the model's strict setting a perfectly ordinary '"document_id": "…"'
+    #: would be rejected as "not an instance of UUID". Parsing the string is
+    #: still exact -- a malformed one is a 422 here rather than reaching SQL.
+    document_id: UUID | None = Field(default=None, strict=False)
+
+
+class AccessibleScope(BaseModel):
+    """A scoped session whose document the caller may still read."""
+    document_id: UUID
+    title: str
+    accessible: Literal[True]
+
+
+class InaccessibleScope(BaseModel):
+    """A scoped session whose document the caller may no longer read.
+
+    Carries no title by construction, the same rule historical citations
+    follow: losing access to a document must also hide its name.
+    """
+    document_id: UUID
+    accessible: Literal[False]
+
+
+DocumentScope = Annotated[AccessibleScope | InaccessibleScope, Field(discriminator='accessible')]
 
 
 class SendMessageRequest(BaseModel):
@@ -34,6 +63,8 @@ class SessionOut(BaseModel):
     title: str | None
     created_at: datetime
     updated_at: datetime
+    #: null for an ordinary whole-corpus session.
+    document_scope: DocumentScope | None = None
 
 
 class SessionListItem(SessionOut):

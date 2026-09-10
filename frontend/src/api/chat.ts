@@ -44,6 +44,27 @@ export function createSession(
   return postJson<ChatSession>('/chat/sessions', body, options)
 }
 
+/**
+ * Start a session that can only draw on one document.
+ *
+ * The document is named here and nowhere else. Every later message goes
+ * through the ordinary `sendMessage`, because the scope lives on the session
+ * server-side -- there is nothing for the client to keep resending, and so
+ * nothing it can get wrong.
+ *
+ * A caller without read permission on the document gets the same 404 as for a
+ * document that does not exist.
+ */
+export function createDocumentSession(
+  documentId: string,
+  title: string | null = null,
+  options: RequestOptions = {},
+): Promise<ChatSession> {
+  const body: CreateSessionRequest = { document_id: documentId }
+  if (title) body.title = title
+  return postJson<ChatSession>('/chat/sessions', body, options)
+}
+
 export function fetchSession(
   sessionId: string,
   page = 1,

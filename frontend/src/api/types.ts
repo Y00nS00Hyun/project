@@ -88,6 +88,40 @@ export interface DocumentDetail {
   latest_revision: RevisionRef | null
   is_searchable: boolean
   downloadable: boolean
+  summary: DocumentSummary
+  chat: ChatCapability
+}
+
+/**
+ * Whether this deployment can answer questions about documents at all.
+ *
+ * Read before the question box is rendered, not after a question fails: the
+ * moment somebody has typed a question is the worst time to learn the feature
+ * is switched off.
+ */
+export interface ChatCapability {
+  available: boolean
+}
+
+/**
+ * The current revision's precomputed summary (contract v1.2).
+ *
+ * `state` is what happened to this revision's summary; `available` says
+ * whether this deployment can produce summaries at all. Both are needed:
+ * "아직 준비 중" and "이 환경에서는 요약을 만들지 않습니다" are different
+ * things to tell a reader, and only the second is a property of the
+ * installation rather than of the document.
+ *
+ * Which provider or model wrote it is deliberately absent from the API.
+ */
+export interface DocumentSummary {
+  state: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED'
+  /** Only ever set when state is SUCCESS. */
+  content: string | null
+  generated_at: string | null
+  available: boolean
+  /** The revision this summary describes. */
+  revision_id: string | null
 }
 
 export interface Revision {
@@ -145,12 +179,26 @@ export const DEFAULT_PAGE_SIZE = 20
 // Chat / RAG (contract section 9, src/api/schemas/chat.py)
 // ---------------------------------------------------------------------------
 
+/**
+ * A session bound to a single document.
+ *
+ * `accessible` is re-checked on every read, so a session whose document the
+ * caller has since lost permission for arrives without a title. The union is
+ * discriminated rather than optional-titled: there is no shape in which an
+ * inaccessible scope carries a name to render by accident.
+ */
+export type DocumentScope =
+  | { document_id: string; accessible: true; title: string }
+  | { document_id: string; accessible: false }
+
 export interface ChatSession {
   session_id: string
   /** Optional and often null: the API does not invent one from the question. */
   title: string | null
   created_at: string
   updated_at: string
+  /** null for an ordinary whole-corpus session. */
+  document_scope: DocumentScope | null
 }
 
 export interface ChatSessionSummary extends ChatSession {
@@ -233,6 +281,12 @@ export interface ChatSessionDetail extends ChatSession {
 
 export interface CreateSessionRequest {
   title?: string | null
+  /**
+   * Binds the session to one document. Sent once, at creation; the server
+   * stores it and applies it to every later question, so no message request
+   * carries -- or could widen -- the scope.
+   */
+  document_id?: string
 }
 
 export interface SendMessageRequest {

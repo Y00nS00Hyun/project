@@ -1418,6 +1418,21 @@ CREATE TABLE chat_sessions (
 
     title TEXT,
 
+    /*
+     * document_id (migration 0002)
+     * NULL이면 전체 corpus 대상 세션, 값이 있으면 그 문서 전용 세션이다.
+     * scope는 prompt가 아니라 검색 후보 SQL(ELIGIBLE_CTE)에서 ACL과 같은
+     * 단계로 강제된다. message마다 client가 문서를 지정하지 않고 서버가 이
+     * 컬럼을 읽으므로, 요청 하나를 검사하지 않아 scope가 넓어지는 경로가
+     * 존재하지 않는다.
+     *
+     * ON DELETE 동작을 두지 않는다. 문서는 soft delete가 원칙이라 실제
+     * DELETE는 정상 운영 경로가 아니며, 만약 시도된다면 대화를 대상 문서와
+     * 조용히 분리하는 것보다 실패하는 편이 낫다.
+     */
+    document_id UUID
+        REFERENCES documents(id),
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -1430,6 +1445,13 @@ CREATE INDEX idx_chat_sessions_user
         user_id,
         updated_at DESC
     );
+```
+
+```sql
+-- partial: 문서 전용 세션만 document로 조회되고, 전체 corpus 세션이 다수다.
+CREATE INDEX idx_chat_sessions_document
+    ON chat_sessions (document_id)
+    WHERE document_id IS NOT NULL;
 ```
 
 ---

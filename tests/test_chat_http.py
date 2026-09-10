@@ -89,6 +89,11 @@ def app(chat_dsn, conn, tmp_path, monkeypatch, provider):
     monkeypatch.setenv('APP_ENV', 'test')
     monkeypatch.setenv('SHARED_ROOT', str(tmp_path))
     monkeypatch.setenv('DATABASE_URL', chat_dsn)
+    # The provider is overridden with a local fake, but the two switches are
+    # read from the environment and gate the call regardless of what is behind
+    # it. The corpus here is fixture text, so turning them on sends nothing.
+    monkeypatch.setenv('LLM_PROVIDER', 'anthropic')
+    monkeypatch.setenv('DOCUMENT_EXTERNAL_LLM_ENABLED', 'true')
     for name in ('RAG_RETRIEVAL_LIMIT', 'RAG_MAX_CONTEXT_CHUNKS', 'RAG_MAX_CONTEXT_CHARS'):
         monkeypatch.delenv(name, raising=False)
     dependencies.get_config.cache_clear()
@@ -546,3 +551,162 @@ def test_rate_limit_response_leaks_no_provider_detail(client, world, provider, c
     assert response.status_code == 429
     assert 'SECRET-upstream-body' not in response.text
     assert 'SECRET-upstream-body' not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Document-scoped sessions over real HTTP (contract v1.2 section 20)
+# ---------------------------------------------------------------------------
+
+class TestDocumentScopedSessionHttp:
+    """The wire format, which the service-level tests cannot see.
+
+    document_id crosses the wire as a JSON string. The request model is strict
+    everywhere else, and a strict UUID field rejects exactly that -- so this is
+    the layer where "the feature works" and "the feature is reachable" differ.
+    """
+
+    def test_a_document_id_string_is_accepted(self, client, world):
+        response = client.post('/api/v1/chat/sessions', headers=headers(world['user']),
+                               json={'document_id': world['doc']})
+        assert response.status_code == 201, response.text
+        assert response.json()['document_scope'] == {
+            'document_id': world['doc'], 'accessible': True, 'title': '사업비 기준',
+        }
+
+    def test_an_unscoped_session_reports_no_scope(self, client, world):
+        response = client.post('/api/v1/chat/sessions', headers=headers(world['user']), json={})
+        assert response.json()['document_scope'] is None
+
+    def test_a_malformed_document_id_is_rejected_before_sql(self, client, world):
+        response = client.post('/api/v1/chat/sessions', headers=headers(world['user']),
+                               json={'document_id': 'not-a-uuid'})
+        assert response.status_code == 422
+        assert response.json()['error']['code'] == 'VALIDATION_ERROR'
+
+    def test_a_document_the_caller_cannot_read_is_a_404(self, client, world):
+        response = client.post('/api/v1/chat/sessions', headers=headers(world['other']),
+                               json={'document_id': world['doc']})
+        assert response.status_code == 404
+        assert response.json()['error']['code'] == 'DOCUMENT_NOT_FOUND'
+
+    def test_a_document_that_does_not_exist_is_the_same_404(self, client, world):
+        response = client.post('/api/v1/chat/sessions', headers=headers(world['user']),
+                               json={'document_id': str(uuid4())})
+        assert response.status_code == 404
+        # Identical to the previous case: the error must not confirm existence.
+        assert response.json()['error']['code'] == 'DOCUMENT_NOT_FOUND'
+
+    def test_a_message_may_not_carry_a_document(self, client, world):
+        session = create_session(client, world, document_id=world['doc'])
+        response = client.post(f'/api/v1/chat/sessions/{session}/messages',
+                               headers=headers(world['user']),
+                               json={'message': '사업비는?', 'document_id': world['doc']})
+        # extra='forbid'. The scope is the session's, and there is no request
+        # shape in which a client can restate -- or change -- it.
+        assert response.status_code == 422
+
+    def test_the_scope_survives_in_the_session_list_and_detail(self, client, world):
+        session = create_session(client, world, document_id=world['doc'])
+        listed = client.get('/api/v1/chat/sessions', headers=headers(world['user'])).json()
+        assert listed['items'][0]['document_scope']['document_id'] == world['doc']
+        assert detail(client, world, session).json()['document_scope']['title'] == '사업비 기준'
+
+    def test_losing_permission_hides_the_title_and_blocks_new_questions(
+        self, client, conn, world,
+    ):
+        session = create_session(client, world, document_id=world['doc'])
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM document_permissions WHERE document_id = %s', (world['doc'],))
+
+        body = detail(client, world, session).json()
+        assert body['document_scope'] == {'document_id': world['doc'], 'accessible': False}
+        assert '사업비 기준' not in json.dumps(body, ensure_ascii=False)
+        assert send(client, world, session).status_code == 404
+
+    def test_a_scoped_session_cites_only_its_own_document(self, client, conn, world, provider):
+        other_doc, _ = world['corpus'].document('다른 사업비 문서', text='사업비는 5억원이다. 예산',
+                                                department_id=world['dept'])
+        world['corpus'].grant(other_doc, user_id=world['user'])
+
+        session = create_session(client, world, document_id=world['doc'])
+        assert send(client, world, session).status_code == 201
+
+        # Both documents are readable and both match the query, so the second
+        # one's absence is the scope, not the ranking.
+        cited = {chunk['document_id'] for request in provider.requests
+                 for chunk in json.loads(request.document_context_json)}
+        assert cited == {world['doc']}
+
+    def test_an_unscoped_session_still_sees_both_documents(self, client, world, provider):
+        other_doc, _ = world['corpus'].document('다른 사업비 문서', text='사업비는 5억원이다. 예산',
+                                                department_id=world['dept'])
+        world['corpus'].grant(other_doc, user_id=world['user'])
+
+        session = create_session(client, world)
+        assert send(client, world, session).status_code == 201
+        cited = {chunk['document_id'] for request in provider.requests
+                 for chunk in json.loads(request.document_context_json)}
+        assert cited == {world['doc'], other_doc}
+
+
+# ---------------------------------------------------------------------------
+# Provider disabled: a capability, not a 500 (contract v1.2 section 24)
+# ---------------------------------------------------------------------------
+
+class TestGenerationDisabledHttp:
+    """What a user gets when this deployment may not call a provider.
+
+    The rule being tested is that they find out *before* typing a question, and
+    that if they somehow ask anyway the answer is a plain "switched off" rather
+    than a server error inviting a retry that will never succeed.
+    """
+
+    @pytest.fixture
+    def no_provider(self, monkeypatch):
+        monkeypatch.delenv('LLM_PROVIDER', raising=False)
+        monkeypatch.delenv('DOCUMENT_EXTERNAL_LLM_ENABLED', raising=False)
+
+    @pytest.fixture
+    def provider_but_no_approval(self, monkeypatch):
+        monkeypatch.setenv('LLM_PROVIDER', 'anthropic')
+        monkeypatch.setenv('ANTHROPIC_API_KEY', 'not-a-real-key')
+        monkeypatch.delenv('DOCUMENT_EXTERNAL_LLM_ENABLED', raising=False)
+
+    def test_asking_returns_503_not_500(self, client, world, no_provider):
+        session = create_session(client, world)
+        response = send(client, world, session)
+        assert response.status_code == 503
+        assert response.json()['error']['code'] == 'FEATURE_UNAVAILABLE'
+        assert response.json()['error']['message'] == 'AI 질문 기능이 현재 비활성화되어 있습니다.'
+
+    def test_no_provider_call_is_attempted(self, client, world, provider, no_provider):
+        session = create_session(client, world)
+        send(client, world, session)
+        # Refused before retrieval, so no document text was even assembled.
+        assert provider.requests == []
+
+    def test_a_configured_vendor_without_approval_is_still_refused(
+        self, client, world, provider, provider_but_no_approval,
+    ):
+        session = create_session(client, world)
+        assert send(client, world, session).status_code == 503
+        assert provider.requests == []
+
+    def test_the_document_detail_says_so_up_front(self, client, world, no_provider):
+        body = client.get(f'/api/v1/documents/{world["doc"]}',
+                          headers=headers(world['user'])).json()
+        assert body['chat'] == {'available': False}
+        assert body['summary']['available'] is False
+
+    def test_the_capability_is_true_when_both_switches_are_on(self, client, world):
+        # The app fixture sets both; this is the positive control for the test
+        # above, so "always false" cannot pass.
+        body = client.get(f'/api/v1/documents/{world["doc"]}',
+                          headers=headers(world['user'])).json()
+        assert body['chat'] == {'available': True}
+
+    def test_sessions_can_still_be_created_and_read(self, client, world, no_provider):
+        # Only generation is off. History and session management are local and
+        # keep working, so an existing conversation stays readable.
+        session = create_session(client, world, document_id=world['doc'])
+        assert detail(client, world, session).status_code == 200

@@ -143,10 +143,10 @@ def get_llm_provider():
     is unchanged and never consults the environment.
     """
     from rag.exceptions import ProviderConfigurationError
-    from rag.provider import UnconfiguredProvider
+    from rag.provider import UNCONFIGURED, UnconfiguredProvider, selected_provider_name
 
-    selected = os.environ.get("LLM_PROVIDER", "").strip().lower()
-    if not selected or selected == "unconfigured":
+    selected = selected_provider_name()
+    if selected == UNCONFIGURED:
         return UnconfiguredProvider()
     if selected == "anthropic":
         try:

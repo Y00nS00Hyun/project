@@ -97,6 +97,10 @@ services:
       # Empty by default. The provider stays UnconfiguredProvider and no
       # request leaves the network; an API key present in the environment is
       # not enough on its own to turn generation on.
+      # Second gate, defaulting to off. An operator who copies a provider and
+      # a key into .env has still not authorised sending internal documents
+      # anywhere; that takes setting this as well.
+      DOCUMENT_EXTERNAL_LLM_ENABLED: ${DOCUMENT_EXTERNAL_LLM_ENABLED:-false}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}

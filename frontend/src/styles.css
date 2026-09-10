@@ -471,3 +471,13 @@ select:focus-visible {
   .sidebar { position: static; flex-basis: auto; width: 100%; max-height: 40vh; }
   .sidebar.is-collapsed { flex-basis: auto; }
 }
+
+/* Document detail: summary panel.
+   Reads as prose, so it gets prose measure and leading rather than the
+   tighter metrics the metadata grid uses. */
+.summary-text {
+  margin: 0 0 0.5rem;
+  max-width: 68ch;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}

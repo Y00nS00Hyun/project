@@ -28,6 +28,18 @@ class DownloadTarget:
     file_type: str
 
 
+def _document_generation_enabled() -> bool:
+    """Both capability fields answer from here.
+
+    Imported lazily: the API layer should not pull in the RAG package to serve
+    a document, and rag.provider only reads environment variables -- no client
+    is constructed and no request is made by asking.
+    """
+    from rag.provider import document_generation_enabled
+
+    return document_generation_enabled()
+
+
 class DocumentNotVisible(Exception):
     """The document does not exist, or the user may not see it.
 
@@ -71,6 +83,12 @@ class DocumentService:
             "latest_revision": latest,
             "is_searchable": current is not None,
             "downloadable": self._is_downloadable(row),
+            # Read, never generated. Opening a document must not call a
+            # provider: it would make the page as slow and as fragile as the
+            # external service, and it would send a document out because
+            # somebody clicked on it.
+            "summary": self._summary(row["current_revision_id"]),
+            "chat": {"available": _document_generation_enabled()},
         }
 
     def list_revisions(
@@ -189,6 +207,40 @@ class DocumentService:
         if row is None:
             raise DocumentNotVisible(document_id)
         return dict(row)
+
+    def _summary(self, revision_id) -> dict[str, Any]:
+        """The current revision's summary, as stored.
+
+        Scoped to the current revision by the same id the rest of this response
+        uses, so a document that has just been re-ingested shows its new
+        revision's summary state rather than the old revision's text.
+        """
+        available = _document_generation_enabled()
+        if revision_id is None:
+            # Nothing is READY yet, so nothing has been summarized.
+            return {"state": "PENDING", "content": None, "generated_at": None,
+                    "available": available, "revision_id": None}
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT summary, summary_status, summarized_at FROM document_revisions "
+                "WHERE id = %s",
+                (revision_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return {"state": "PENDING", "content": None, "generated_at": None,
+                    "available": available, "revision_id": None}
+        state = row["summary_status"]
+        return {
+            "state": state,
+            # Only a finished summary has content. A RUNNING or FAILED revision
+            # can still hold text from an earlier attempt, and showing that as
+            # if it were current would be worse than showing nothing.
+            "content": row["summary"] if state == "SUCCESS" else None,
+            "generated_at": row["summarized_at"] if state == "SUCCESS" else None,
+            "available": available,
+            "revision_id": str(revision_id),
+        }
 
     def _revision_ref(self, revision_id) -> dict[str, Any] | None:
         if revision_id is None:
