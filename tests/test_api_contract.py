@@ -19,8 +19,10 @@ os.environ.setdefault("DATABASE_URL", "postgresql://unused/unused")
 from api.app import API_PREFIX, create_app  # noqa: E402
 from api.errors import ERROR_CODES  # noqa: E402
 
-#: Exactly all ten method/path pairs in API Contract v1.
+#: Exactly the eleven method/path pairs in API Contract v1.1 -- v1's ten plus
+#: the additive GET /folders.
 EXPECTED_ROUTES = {
+    ("GET", f"{API_PREFIX}/folders"),
     ("GET", f"{API_PREFIX}/search"),
     ("GET", f"{API_PREFIX}/documents/{{document_id}}"),
     ("GET", f"{API_PREFIX}/documents/{{document_id}}/revisions"),
@@ -162,8 +164,9 @@ class TestSearchParameters:
             p["name"] for p in spec["paths"][f"{API_PREFIX}/search"]["get"]["parameters"]
             if p["in"] == "query"
         }
+        # v1's eight, plus folder_path from the v1.1 additive revision.
         assert params == {"q", "mode", "page", "size", "department_id", "year",
-                          "tag_id", "file_type"}
+                          "tag_id", "file_type", "folder_path"}
 
     def test_size_bounds_are_declared(self, spec):
         for p in spec["paths"][f"{API_PREFIX}/search"]["get"]["parameters"]:
@@ -234,3 +237,48 @@ class TestChatContract:
                 assert declared == (path == messages and method == 'post'), f'{method} {path}'
         schema = spec['paths'][messages]['post']['responses']['429']
         assert schema['content']['application/json']['schema']['$ref'].endswith('/ErrorResponse')
+
+
+class TestFolderContract:
+    """API Contract v1.1 section 12."""
+
+    def test_folders_is_the_only_addition(self, spec):
+        """v1.1 is additive: v1's ten routes are untouched."""
+        v1_routes = EXPECTED_ROUTES - {("GET", f"{API_PREFIX}/folders")}
+        actual = {
+            (method.upper(), path)
+            for path, methods in spec["paths"].items()
+            for method in methods
+        }
+        assert v1_routes <= actual
+        assert len(actual) == 11
+
+    def test_a_folder_carries_a_canonical_path_and_a_display_name(self, spec):
+        """Separate fields, because for a legacy folder they differ entirely.
+
+        A client that rebuilt a path by joining names would produce something
+        matching no document.
+        """
+        folder = spec["components"]["schemas"]["FolderOut"]["properties"]
+        assert set(folder) == {"path", "name", "parent_path", "depth", "document_count"}
+
+    def test_folders_exposes_no_absolute_path_field(self, spec):
+        folder = spec["components"]["schemas"]["FolderOut"]["properties"]
+        for banned in ("absolute_path", "shared_root", "source_path", "root"):
+            assert banned not in folder
+
+    def test_folders_is_not_paginated(self, spec):
+        """A truncated tree is not navigable."""
+        response = spec["components"]["schemas"]["FolderListResponse"]["properties"]
+        assert set(response) == {"items"}
+
+    def test_search_accepts_folder_path(self, spec):
+        params = {
+            p["name"] for p in spec["paths"][f"{API_PREFIX}/search"]["get"]["parameters"]
+        }
+        assert "folder_path" in params
+
+    def test_folders_takes_no_query_parameters(self, spec):
+        """The tree is navigation and must not vary with search filters."""
+        operation = spec["paths"][f"{API_PREFIX}/folders"]["get"]
+        assert not operation.get("parameters")

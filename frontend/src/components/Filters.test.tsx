@@ -11,6 +11,7 @@ const EMPTY: SearchState = {
   year: null,
   tagIds: [],
   fileType: null,
+  folderPath: null,
 }
 
 const KIND_TAGS = [

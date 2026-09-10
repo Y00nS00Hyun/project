@@ -14,6 +14,13 @@ export interface SearchState {
   year: number | null
   tagIds: number[]
   fileType: FileType | null
+  /**
+   * Canonical folder path from GET /folders, carried verbatim.
+   *
+   * Never assembled from display names: for a folder created outside UTF-8 the
+   * canonical path and the readable name differ completely.
+   */
+  folderPath: string | null
 }
 
 function parseYear(raw: string | null): number | null {
@@ -39,6 +46,7 @@ export function parseSearchState(params: URLSearchParams): SearchState {
       .map(Number)
       .filter((id) => Number.isSafeInteger(id) && id > 0),
     fileType: parseFileType(params.get('file_type')),
+    folderPath: params.get('folder_path') || null,
   }
 }
 
@@ -49,6 +57,7 @@ export function toSearchParams(state: SearchState): URLSearchParams {
   // Repeated key: the backend ANDs multiple tag_id values.
   for (const id of state.tagIds) params.append('tag_id', String(id))
   if (state.fileType) params.set('file_type', state.fileType)
+  if (state.folderPath) params.set('folder_path', state.folderPath)
   if (state.page > 1) params.set('page', String(state.page))
   return params
 }

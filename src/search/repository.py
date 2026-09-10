@@ -87,6 +87,13 @@ eligible AS (
       AND (%(department_id)s::uuid IS NULL OR d.department_id = %(department_id)s::uuid)
       AND (%(year)s::int IS NULL OR r.document_year = %(year)s::int)
       AND (%(file_type)s::text IS NULL OR d.file_type = %(file_type)s::text)
+      -- Folder subtree. The pattern arrives already LIKE-escaped and ending in
+      -- the separator, so selecting "2026" cannot pull in "20260", and the
+      -- percent signs a canonical path uses for byte escapes stay literal.
+      AND (
+          %(folder_prefix)s::text IS NULL
+          OR d.source_path LIKE %(folder_prefix)s::text || '%%' ESCAPE '\\'
+      )
       AND (
           %(tag_count)s = 0
           OR (
@@ -113,6 +120,7 @@ def _base_params(
     year: int | None,
     tag_ids: Sequence[int],
     file_type: str | None = None,
+    folder_prefix: str | None = None,
 ) -> dict[str, Any]:
     return {
         "user_id": user_id,
@@ -120,6 +128,9 @@ def _base_params(
         "department_id": department_id,
         "year": year,
         "file_type": file_type,
+        # Already LIKE-escaped and separator-terminated by the caller; the
+        # query only appends the wildcard.
+        "folder_prefix": folder_prefix,
         "tag_ids": list(tag_ids),
         "tag_count": len(set(tag_ids)),
     }
@@ -141,6 +152,7 @@ class SearchRepository:
         year: int | None,
         tag_ids: Sequence[int],
         file_type: str | None,
+        folder_prefix: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -166,7 +178,7 @@ class SearchRepository:
         ORDER BY e.updated_at DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids, file_type)
+        params = _base_params(user_id, department_id, year, tag_ids, file_type, folder_prefix)
         params.update({"limit": limit, "offset": offset})
         return self._fetch(sql, params)
 
@@ -181,6 +193,7 @@ class SearchRepository:
         year: int | None,
         tag_ids: Sequence[int],
         file_type: str | None,
+        folder_prefix: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -227,7 +240,7 @@ class SearchRepository:
         ORDER BY s.score DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids, file_type)
+        params = _base_params(user_id, department_id, year, tag_ids, file_type, folder_prefix)
         params.update({"query_vector": query_vector, "limit": limit, "offset": offset})
         return self._fetch(sql, params)
 
@@ -243,6 +256,7 @@ class SearchRepository:
         year: int | None,
         tag_ids: Sequence[int],
         file_type: str | None,
+        folder_prefix: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -302,7 +316,7 @@ class SearchRepository:
         ORDER BY m.score DESC, e.document_id ASC
         LIMIT %(limit)s OFFSET %(offset)s
         """
-        params = _base_params(user_id, department_id, year, tag_ids, file_type)
+        params = _base_params(user_id, department_id, year, tag_ids, file_type, folder_prefix)
         params.update({"query_text": query_text, "limit": limit, "offset": offset})
         return self._fetch(sql, params)
 

@@ -112,6 +112,9 @@ class SearchService:
             "year": request.year,
             "tag_ids": request.tag_ids,
             "file_type": request.file_type,
+            # Escaped and separator-terminated by SearchRequest; the SQL only
+            # appends the wildcard.
+            "folder_prefix": request.folder_prefix,
             "limit": request.size,
             "offset": request.offset,
         }

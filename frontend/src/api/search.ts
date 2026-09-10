@@ -17,6 +17,8 @@ export interface SearchQuery {
   year?: number | null
   tagIds?: number[]
   fileType?: FileType | null
+  /** Canonical folder path; restricts results to its whole subtree. */
+  folderPath?: string | null
 }
 
 export function searchDocuments(
@@ -36,6 +38,7 @@ export function searchDocuments(
       year: query.year,
       tag_id: query.tagIds,
       file_type: query.fileType,
+      folder_path: query.folderPath,
     },
   })
 }

@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .dependencies import app_env, is_production
 from .errors import ApiError
-from .routers import chat, documents, metadata, search
+from .routers import chat, documents, folders, metadata, search
 
 logger = logging.getLogger("api")
 
@@ -156,6 +156,7 @@ def create_app() -> FastAPI:
     app.include_router(search.router, prefix=API_PREFIX)
     app.include_router(documents.router, prefix=API_PREFIX)
     app.include_router(metadata.router, prefix=API_PREFIX)
+    app.include_router(folders.router, prefix=API_PREFIX)
     app.include_router(chat.router, prefix=API_PREFIX)
 
     logger.info("api.started", extra={"env": app_env(), "docs_enabled": docs_url is not None})

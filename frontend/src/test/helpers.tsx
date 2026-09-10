@@ -52,7 +52,17 @@ export function errorResponse(code: string, message: string, status: number): Re
   return jsonResponse({ error: { code, message, request_id: 'req-test-1' } }, status)
 }
 
+/** GET /folders returns canonical paths and display names separately. */
+export const FOLDERS = [
+  { path: '프로젝트_A', name: '프로젝트_A', parent_path: null, depth: 1, document_count: 3 },
+  { path: '프로젝트_A/요구사항', name: '요구사항', parent_path: '프로젝트_A', depth: 2, document_count: 2 },
+  { path: '프로젝트_A/완료', name: '완료', parent_path: '프로젝트_A', depth: 2, document_count: 1 },
+  // Legacy folder: the canonical path is escaped, the name is readable.
+  { path: '%C7%C1%B7%CE%C1%A7Ʈ_B', name: '프로젝트_B', parent_path: null, depth: 1, document_count: 2 },
+]
+
 export const emptyMetadata = {
+  '/api/v1/folders': { items: FOLDERS },
   '/api/v1/departments': { items: [{ id: 'dep-1', name: '기획조정실' }] },
   // The real GET /tags returns document kinds and free-form tags together;
   // the namespace prefix is what separates them.

@@ -70,6 +70,9 @@ class SearchRequest:
     year: int | None = None
     tag_ids: tuple[int, ...] = ()
     file_type: str | None = None
+    #: Canonical folder path. Restricts results to that folder's whole subtree.
+    #: Validated in __post_init__, never interpolated into SQL.
+    folder_path: str | None = None
 
     page: int = 1
     size: int = DEFAULT_PAGE_SIZE
@@ -87,6 +90,13 @@ class SearchRequest:
             raise InvalidSearchRequestError(
                 f"file_type must be one of {', '.join(FILE_TYPES)}"
             )
+        if self.folder_path is not None:
+            # Rejects absolute paths, '..', empty segments and anything that is
+            # not a canonical path. Frozen dataclass, so the normalized value is
+            # set through object.__setattr__.
+            from .folder_paths import normalize_folder_path
+
+            object.__setattr__(self, "folder_path", normalize_folder_path(self.folder_path))
 
     @property
     def normalized_query(self) -> str | None:
@@ -104,6 +114,15 @@ class SearchRequest:
     @property
     def offset(self) -> int:
         return (self.page - 1) * self.size
+
+    @property
+    def folder_prefix(self) -> str | None:
+        """The LIKE pattern for this request's folder, already escaped."""
+        if self.folder_path is None:
+            return None
+        from .folder_paths import subtree_prefix
+
+        return subtree_prefix(self.folder_path)
 
 
 @dataclass(frozen=True)

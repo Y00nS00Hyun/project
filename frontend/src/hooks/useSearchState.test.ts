@@ -15,6 +15,7 @@ describe('parseSearchState', () => {
       year: 2026,
       tagIds: [12, 13],
       fileType: 'hwpx',
+      folderPath: null,
     })
   })
 
@@ -25,6 +26,7 @@ describe('parseSearchState', () => {
       year: null,
       tagIds: [],
       fileType: null,
+      folderPath: null,
     })
   })
 
@@ -53,6 +55,7 @@ describe('toSearchParams', () => {
       year: 2026,
       tagIds: [12, 13],
       fileType: 'hwpx' as const,
+      folderPath: null,
     }
     expect(parseSearchState(toSearchParams(state))).toEqual(state)
   })
@@ -64,6 +67,7 @@ describe('toSearchParams', () => {
       year: null,
       tagIds: [],
       fileType: null,
+      folderPath: null,
     })
     expect(params.toString()).toBe('')
   })
@@ -77,6 +81,7 @@ describe('toSearchParams', () => {
       year: 2026,
       tagIds: [12],
       fileType: 'hwpx',
+      folderPath: null,
     })
     expect(params.has('department_id')).toBe(false)
   })
@@ -88,6 +93,7 @@ describe('toSearchParams', () => {
       year: null,
       tagIds: [12, 13],
       fileType: null,
+      folderPath: null,
     })
     expect(params.getAll('tag_id')).toEqual(['12', '13'])
   })

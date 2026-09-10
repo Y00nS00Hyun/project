@@ -30,7 +30,8 @@ MAX_QUERY_CHARS = 512
 #: than ignored, so a typo like `yer=2026` cannot silently return unfiltered
 #: results that the caller believes were filtered.
 ALLOWED_PARAMS = frozenset(
-    {"q", "mode", "page", "size", "department_id", "year", "tag_id", "file_type"}
+    {"q", "mode", "page", "size", "department_id", "year", "tag_id", "file_type",
+     "folder_path"}
 )
 
 
@@ -54,6 +55,9 @@ def search(
     year: int | None = Query(None, ge=1900, le=2100),
     tag_id: list[int] = Query(default=[], description="반복 지정 시 AND"),
     file_type: str | None = Query(None),
+    folder_path: str | None = Query(
+        None, description="공유폴더 기준 상대 경로. 해당 폴더의 하위 전체를 대상으로 한다"
+    ),
     user: AuthenticatedUser = Depends(require_user),
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
@@ -77,6 +81,7 @@ def search(
             year=year,
             tag_ids=tuple(tag_id),
             file_type=file_type,
+            folder_path=folder_path,
             page=page,
             size=size,
         )
