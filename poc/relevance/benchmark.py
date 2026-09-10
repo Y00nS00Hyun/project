@@ -17,7 +17,7 @@ A query may have several relevant documents. NO_ANSWER queries have none.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Documents, by the title stored in `documents.title`.

@@ -31,6 +31,7 @@ from benchmark import (  # noqa: E402
     by_kind,
     validate,
 )
+from metrics import evaluate  # noqa: E402
 from strategies import STRATEGIES, Engine  # noqa: E402
 
 TOP_K = 3
@@ -61,16 +62,6 @@ class QueryOutcome:
         return 0.0
 
     @property
-    def precision_at_3(self) -> float:
-        """Against the achievable maximum: a query with one relevant document
-        cannot reach 3/3, and penalising it for that measures the benchmark,
-        not the strategy."""
-        if not self.query.relevant:
-            return 0.0
-        hits = sum(1 for t in self.top if t in self.query.relevant)
-        return hits / min(TOP_K, len(self.query.relevant))
-
-    @property
     def irrelevant_returned(self) -> int:
         """Every returned document that is not relevant -- the whole list, not
         just the top 3. This is what the user actually scrolls through."""
@@ -79,12 +70,24 @@ class QueryOutcome:
 
 @dataclass
 class Metrics:
+    """Standard definitions -- see metrics.py.
+
+    An earlier version of this file printed these as "R@1"/"R@3" while
+    computing Hit@1/Hit@3. With three relevant documents and one at rank 1,
+    Hit@1 is 1.0 but Recall@1 is 1/3; calling the first one Recall overstated
+    the result. Both are reported now, under their own names.
+    """
+
     label: str
     n: int = 0
+    hit_1: float = 0.0
+    hit_3: float = 0.0
     recall_1: float = 0.0
     recall_3: float = 0.0
-    mrr_3: float = 0.0
+    precision_1: float = 0.0
     precision_3: float = 0.0
+    mrr_3: float = 0.0
+    ndcg_3: float = 0.0
     irrelevant_per_query: float = 0.0
     zero_result_rate: float = 0.0
     false_positives: int = 0
@@ -96,10 +99,11 @@ def score_answerable(outcomes: list[QueryOutcome], label: str) -> Metrics:
     m = Metrics(label=label, n=n)
     if not n:
         return m
-    m.recall_1 = sum(o.hit_at_1 for o in outcomes) / n
-    m.recall_3 = sum(o.hit_at_3 for o in outcomes) / n
-    m.mrr_3 = sum(o.reciprocal_rank for o in outcomes) / n
-    m.precision_3 = sum(o.precision_at_3 for o in outcomes) / n
+    scores = evaluate([(o.returned, o.query.relevant) for o in outcomes])
+    m.hit_1, m.hit_3 = scores.hit_1, scores.hit_3
+    m.recall_1, m.recall_3 = scores.recall_1, scores.recall_3
+    m.precision_1, m.precision_3 = scores.precision_1, scores.precision_3
+    m.mrr_3, m.ndcg_3 = scores.mrr_3, scores.ndcg_3
     m.irrelevant_per_query = sum(o.irrelevant_returned for o in outcomes) / n
     m.failures = [o.query.id for o in outcomes if not o.hit_at_3]
     return m
@@ -160,14 +164,16 @@ def main() -> int:
     print("전체 요약  (answerable %d건 / no-answer %d건)"
           % (len(answerable), len(QUERIES) - len(answerable)))
     print("=" * 78)
-    header = f"{'전략':32} {'R@1':>6} {'R@3':>6} {'MRR@3':>7} {'P@3':>6} {'무관/질의':>9}"
+    header = (f"{'전략':32} {'Hit@1':>6} {'Hit@3':>6} {'Rec@1':>7} {'Rec@3':>7} "
+              f"{'P@3':>6} {'MRR@3':>7} {'nDCG@3':>7} {'무관/질의':>9}")
     print(header)
     print("-" * len(header))
     for key, (name, _) in STRATEGIES.items():
         outs = [o for o in results[key] if o.query.answerable]
         m = score_answerable(outs, name)
-        print(f"{key}. {name:29} {m.recall_1:6.2f} {m.recall_3:6.2f} "
-              f"{m.mrr_3:7.2f} {m.precision_3:6.2f} {m.irrelevant_per_query:9.1f}")
+        print(f"{key}. {name:29} {m.hit_1:6.2f} {m.hit_3:6.2f} {m.recall_1:7.2f} "
+              f"{m.recall_3:7.2f} {m.precision_3:6.2f} {m.mrr_3:7.2f} "
+              f"{m.ndcg_3:7.2f} {m.irrelevant_per_query:9.1f}")
 
     print()
     print("=" * 78)
@@ -187,15 +193,17 @@ def main() -> int:
     print("=" * 78)
     for kind in (EXACT, PARAPHRASE, PARTIAL):
         print(f"\n[{TYPE_LABELS[kind]}]  {len(by_kind(kind))}건")
-        h = f"  {'전략':30} {'R@1':>6} {'R@3':>6} {'MRR@3':>7} {'P@3':>6} {'무관/질의':>9}  실패"
+        h = (f"  {'전략':30} {'Hit@1':>6} {'Hit@3':>6} {'Rec@1':>7} {'Rec@3':>7} "
+             f"{'MRR@3':>7} {'nDCG@3':>7} {'무관/질의':>9}  실패")
         print(h)
         print("  " + "-" * (len(h) - 2))
         for key, (name, _) in STRATEGIES.items():
             outs = [o for o in results[key] if o.query.kind == kind]
             m = score_answerable(outs, name)
             fail = ",".join(m.failures) if m.failures else "-"
-            print(f"  {key}. {name:27} {m.recall_1:6.2f} {m.recall_3:6.2f} "
-                  f"{m.mrr_3:7.2f} {m.precision_3:6.2f} {m.irrelevant_per_query:9.1f}  {fail}")
+            print(f"  {key}. {name:27} {m.hit_1:6.2f} {m.hit_3:6.2f} {m.recall_1:7.2f} "
+                  f"{m.recall_3:7.2f} {m.mrr_3:7.2f} {m.ndcg_3:7.2f} "
+                  f"{m.irrelevant_per_query:9.1f}  {fail}")
 
     print(f"\n[{TYPE_LABELS[NO_ANSWER]}]  {len(by_kind(NO_ANSWER))}건")
     h = f"  {'전략':30} {'0건 반환율':>11} {'FP 총계':>9}  0건이 아니었던 질의"
