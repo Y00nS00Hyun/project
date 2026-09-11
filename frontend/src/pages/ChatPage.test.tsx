@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from '../auth/AuthContext'
 import { ChatPage } from './ChatPage'
 import { DocumentPage } from './DocumentPage'
 import {
@@ -72,11 +73,15 @@ function page(items: ChatSessionSummary[]) {
 function renderChat(path = '/chat/ses-1') {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/chat/:sessionId" element={<ChatPage />} />
-        <Route path="/documents/:documentId" element={<DocumentPage />} />
-      </Routes>
+      {/* The nav strip reads the signed-in user from here. The route guard is
+          deliberately not applied: these tests are about the chat page. */}
+      <AuthProvider>
+        <Routes>
+          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/chat/:sessionId" element={<ChatPage />} />
+          <Route path="/documents/:documentId" element={<DocumentPage />} />
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
   )
 }

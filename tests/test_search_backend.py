@@ -216,6 +216,15 @@ class Corpus:
                 (document_id, user_id, department_id, permission),
             )
 
+    def grant_public(self, document_id, permission="READ"):
+        """The third principal: every approved account, one row per document."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO document_permissions (document_id, is_public, permission) "
+                "VALUES (%s, TRUE, %s)",
+                (document_id, permission),
+            )
+
     def tag(self, name: str) -> int:
         with self.conn.cursor() as cur:
             cur.execute("INSERT INTO tags (name) VALUES (%s) RETURNING id", (name,))

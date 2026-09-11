@@ -212,10 +212,49 @@ CREATE TABLE users (
     name TEXT,
     email TEXT,
 
+    /*
+     * department_id
+     * nullable 이며 Local Auth 는 이 값을 쓰지 않는다 -- 회사가 부서 구분을
+     * 사용하지 않으므로 가입·승인 어느 쪽도 여기에 값을 넣지 않는다.
+     *
+     * 컬럼과 document_permissions 의 DEPARTMENT principal 은 남겨 둔다. 아직
+     * 부서 단위로 부여된 문서가 있을 수 있고, 이를 지우는 것은 인증 단순화와
+     * 별개의 schema 정리 작업이다.
+     */
     department_id UUID
         REFERENCES departments(id),
 
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    /*
+     * status (migration 0004)
+     * 계정 수명주기. is_active 와 별개 컬럼이다 -- is_active 는 "이 계정이
+     * 동작해야 하는가"이고 이미 ACL 조인에서 그 의미로 쓰인다. status 는
+     * 수명주기의 어디인지이며, PENDING 은 비활성의 한 종류가 아니라 사람의
+     * 판단을 기다리는 상태다.
+     *
+     * 로그인 시점뿐 아니라 매 요청의 세션 확인에서도 검사한다. 권한을
+     * 회수하면 살아 있는 세션도 함께 끝나야 한다.
+     */
+    status TEXT NOT NULL DEFAULT 'ACTIVE'
+        CHECK (
+            status IN (
+                'PENDING',
+                'ACTIVE',
+                'DISABLED'
+            )
+        ),
+
+    /*
+     * is_system_admin (migration 0004)
+     * 계정 관리 권한. document_permissions 의 ADMIN 과 다른 개념이며 서로
+     * 대체하지 않는다 -- 후자는 문서 한 건에 대한 권한이고 READ_ACL_PREDICATE
+     * 가 이미 읽기로 인정한다. 섞으면 문서 하나에 ADMIN 을 받은 사람이 시스템
+     * 전체를 넘겨받는다.
+     *
+     * 가입으로 획득할 수 없다. 첫 관리자는 서버 CLI 로만 만든다.
+     */
+    is_system_admin BOOLEAN NOT NULL DEFAULT FALSE,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -943,16 +982,35 @@ CREATE TABLE document_permissions (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CHECK (
+    /*
+     * is_public (migration 0006)
+     * 승인된(ACTIVE) 사용자 전원에게 부여하는 세 번째 principal.
+     *
+     * 익명 접근이 아니다 -- READ_ACL_PREDICATE 는 항상 require_user 가 해석한
+     * user_id 와 함께 실행되고, 이 분기도 u.is_active 와 u.status='ACTIVE' 를
+     * 함께 확인한다. 사용자가 아닌 id 는 통과하지 못한다.
+     *
+     * 왜 predicate 를 무력화하지 않고 principal 을 늘렸는가:
+     *   - default deny 가 그대로다. 권한 행이 없는 문서는 여전히 아무도 못
+     *     읽고, 문서는 그 상태로 시작한다.
+     *   - 문서당 한 행이다. 사용자 x 문서 행을 영구히 유지하지 않는다.
+     *   - 문서 하나를 비공개로 되돌리는 것은 그 행을 지우는 일이며, 그 뒤에는
+     *     개별 grant 만 적용된다. 코드 변경이 필요 없다.
+     *   - ACL 은 여전히 retrieval 이전, 같은 자리에서 실행된다.
+     */
+    is_public BOOLEAN NOT NULL DEFAULT FALSE,
+
+    /* principal 은 정확히 하나. is_public 을 하나로 센다. */
+    CONSTRAINT document_permissions_principal_check CHECK (
         num_nonnulls(
             user_id,
             department_id
-        ) = 1
+        ) + is_public::int = 1
     )
 );
 ```
 
-한 사용자/부서에 동일 문서 permission row는 하나만 둔다.
+한 사용자/부서/공개에 동일 문서 permission row는 하나만 둔다.
 
 ```sql
 CREATE UNIQUE INDEX uq_permissions_document_user
@@ -970,6 +1028,12 @@ CREATE UNIQUE INDEX uq_permissions_document_department
         department_id
     )
     WHERE department_id IS NOT NULL;
+```
+
+```sql
+CREATE UNIQUE INDEX uq_permissions_document_public
+    ON document_permissions (document_id)
+    WHERE is_public;
 ```
 
 검색 최적화:
@@ -1404,6 +1468,95 @@ LIMIT 20;
 ```
 
 전체 실제 조회 이력은 `audit_logs`에서 관리한다.
+
+---
+
+# 18.5 Local Authentication (migration 0003)
+
+회사에 SSO / OIDC / SAML / LDAP / AD 가 없으므로 이것이 운영 인증이다.
+`users` 와 분리된 테이블인 이유: `users` 는 조직 안의 사람을 기술하고 ACL 이 조인하는
+대상이다. credential 은 그 사람임을 증명하는 *한 가지 방법*을 기술한다. 분리해 두면 인증
+방식을 교체하는 일이 신원이나 권한을 건드리지 않는다.
+
+credential 행이 없는 `users` 행은 정상이다 -- 다른 방식으로 인증되는 사용자가 그 모습이다.
+
+```sql
+CREATE TABLE local_auth_credentials (
+    user_id UUID PRIMARY KEY
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    /*
+     * 애플리케이션에서 소문자로 정규화한 뒤 저장한다. 대소문자만 다른 중복
+     * 계정이 생기면 한 사람이 다른 사람 아이디의 근사치를 등록할 수 있다.
+     * citext 확장을 쓰지 않는 것은 배포에 확장 의존성을 더하지 않기 위해서다.
+     */
+    login_id TEXT NOT NULL UNIQUE,
+
+    /*
+     * Argon2id 인코딩 문자열. 알고리즘과 파라미터가 문자열 안에 있으므로
+     * 파라미터를 올려도 기존 해시를 그대로 검증할 수 있다.
+     * 평문은 어떤 컬럼에도 저장하지 않는다.
+     */
+    password_hash TEXT NOT NULL,
+
+    /* 로그인 실패 backoff. 잠글 대상이 바로 이 행이므로 여기에 둔다. */
+    failed_attempts INT NOT NULL DEFAULT 0
+        CHECK (failed_attempts >= 0),
+
+    locked_until TIMESTAMPTZ,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+```sql
+CREATE TABLE auth_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    user_id UUID NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+    /*
+     * 브라우저가 가진 token 의 SHA-256. 원문은 저장하지 않는다. DB 를 읽을 수
+     * 있게 된 사람이 그것만으로 남의 세션을 가장할 수 없어야 한다.
+     * 비밀번호 해시가 아니라 평범한 SHA-256 인 것은 token 이 이미 256비트
+     * 난수라 무차별 대입할 것이 없기 때문이다.
+     */
+    token_hash TEXT NOT NULL UNIQUE,
+
+    expires_at TIMESTAMPTZ NOT NULL,
+
+    /*
+     * 로그아웃은 행을 지우지 않고 이 값을 채운다. 만료된 것인지 명시적으로
+     * 끊긴 것인지 구분할 수 있어야 한다.
+     */
+    revoked_at TIMESTAMPTZ,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+```sql
+CREATE INDEX idx_auth_sessions_user
+    ON auth_sessions (user_id);
+```
+
+```sql
+-- 만료 정리용. token_hash 의 UNIQUE 제약이 조회 인덱스를 이미 제공한다.
+CREATE INDEX idx_auth_sessions_expiry
+    ON auth_sessions (expires_at)
+    WHERE revoked_at IS NULL;
+```
+
+```sql
+-- 승인 대기 큐가 유일한 status 조회이고 PENDING 은 소수다.
+CREATE INDEX idx_users_pending
+    ON users (created_at)
+    WHERE status = 'PENDING';
+```
 
 ---
 

@@ -1,6 +1,7 @@
 import { render } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from '../auth/AuthContext'
 import type {
   AccessibleSource,
   AssistantChatMessage,
@@ -14,12 +15,26 @@ import type {
   SearchResponse,
 } from '../api/types'
 
+/**
+ * Render one page at one route.
+ *
+ * Wrapped in AuthProvider because the nav strip reads the signed-in user from
+ * it. The provider asks the server who that is, so a test that renders a page
+ * with a nav wants SIGNED_IN among its stubbed routes -- without it the answer
+ * is simply "nobody", which is a valid state and not an error.
+ *
+ * Note this does NOT apply the route guard: these tests render a page
+ * directly, which is what lets them stay about the page. Guard behaviour is
+ * tested where it lives, in App.test.tsx and RequireAuth.test.tsx.
+ */
 export function renderAt(ui: ReactElement, path = '/search', routePath = '/search') {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path={routePath} element={ui} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path={routePath} element={ui} />
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
   )
 }
@@ -48,6 +63,25 @@ export function mockFetch(
  * panel, which would then be indistinguishable from the error the test is
  * actually asserting on.
  */
+/**
+ * A signed-in session, for tests that render anything carrying the nav strip
+ * or that go through the route guard.
+ */
+export const SIGNED_IN = {
+  '/api/v1/auth/me': {
+    user_id: 'user-1',
+    name: '윤수현',
+    is_system_admin: false,
+  },
+  '/api/v1/auth/capability': { local_auth_enabled: true, signup_enabled: true },
+}
+
+/** The same, for an administrator. */
+export const SIGNED_IN_ADMIN = {
+  ...SIGNED_IN,
+  '/api/v1/auth/me': { ...SIGNED_IN['/api/v1/auth/me'], is_system_admin: true },
+}
+
 export const NO_CHAT_SESSIONS = {
   '/api/v1/chat/sessions': { items: [], page: 1, size: 20, total: 0 },
 }
@@ -131,6 +165,7 @@ export function makeDetail(overrides: Partial<DocumentDetail> = {}): DocumentDet
     // Tests that care about a different state override the whole object.
     summary: {
       state: 'SUCCESS',
+      reason: null,
       content: '2026년 AI 문서관리 사업의 배경과 예산 계획을 정리한 문서입니다.',
       generated_at: '2026-08-30T05:00:00Z',
       available: true,

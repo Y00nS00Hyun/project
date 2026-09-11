@@ -22,8 +22,10 @@ export function ResultCard({ item }: { item: SearchItem }) {
         <Link to={`/documents/${item.document_id}`} state={linkState}>{item.title}</Link>
       </h3>
 
+      {/* Department is deliberately absent here too: a result line should
+          carry what helps somebody choose between results, and every document
+          would say the same thing. The field is still in the response. */}
       <p className="result-meta">
-        {item.department && <span>{item.department.name}</span>}
         <span>{fileTypeLabel(item.file_type)}</span>
         <span>수정 {formatDate(item.updated_at)}</span>
       </p>

@@ -28,6 +28,16 @@ class DownloadTarget:
     file_type: str
 
 
+#: Worker result_code -> the reason a reader is shown. Anything not listed
+#: here has no public explanation and reports None rather than leaking an
+#: internal code the UI has no wording for.
+_PUBLIC_SUMMARY_REASONS = {
+    "NO_TEXT": "NO_TEXT",
+    "TOO_LARGE": "TOO_LARGE",
+    "PROVIDER_DISABLED": "PROVIDER_DISABLED",
+}
+
+
 def _document_generation_enabled() -> bool:
     """Both capability fields answer from here.
 
@@ -218,8 +228,8 @@ class DocumentService:
         available = _document_generation_enabled()
         if revision_id is None:
             # Nothing is READY yet, so nothing has been summarized.
-            return {"state": "PENDING", "content": None, "generated_at": None,
-                    "available": available, "revision_id": None}
+            return {"state": "PENDING", "reason": None, "content": None,
+                    "generated_at": None, "available": available, "revision_id": None}
         with self.conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "SELECT summary, summary_status, summarized_at FROM document_revisions "
@@ -228,11 +238,12 @@ class DocumentService:
             )
             row = cur.fetchone()
         if row is None:
-            return {"state": "PENDING", "content": None, "generated_at": None,
-                    "available": available, "revision_id": None}
+            return {"state": "PENDING", "reason": None, "content": None,
+                    "generated_at": None, "available": available, "revision_id": None}
         state = row["summary_status"]
         return {
             "state": state,
+            "reason": self._summary_reason(revision_id, state, available),
             # Only a finished summary has content. A RUNNING or FAILED revision
             # can still hold text from an earlier attempt, and showing that as
             # if it were current would be worse than showing nothing.
@@ -241,6 +252,40 @@ class DocumentService:
             "available": available,
             "revision_id": str(revision_id),
         }
+
+    def _summary_reason(self, revision_id, state: str, available: bool) -> str | None:
+        """Explain a state that is not self-explanatory.
+
+        Only SKIPPED needs this. It is recorded when there was nothing to
+        summarize, when the document was too large to summarize within the call
+        ceiling, and when generation is switched off -- three situations that
+        share one status column but must not share one sentence on screen.
+
+        The answer comes from the SUMMARIZE job that made the decision, so no
+        column is added to carry it. When generation is off no job is created
+        at all, which is why that case is answered from the capability instead.
+        """
+        if state != "SKIPPED":
+            return None
+        if not available:
+            return "PROVIDER_DISABLED"
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT result_code FROM processing_jobs
+                WHERE document_revision_id = %s AND job_type = 'SUMMARIZE'
+                  AND result_code IS NOT NULL
+                ORDER BY finished_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+                """,
+                (revision_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            # Skipped without a job: generation was off when the revision
+            # became ready, and has since been switched on.
+            return "PROVIDER_DISABLED"
+        return _PUBLIC_SUMMARY_REASONS.get(row[0])
 
     def _revision_ref(self, revision_id) -> dict[str, Any] | None:
         if revision_id is None:

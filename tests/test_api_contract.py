@@ -35,6 +35,24 @@ EXPECTED_ROUTES = {
     ("POST", f"{API_PREFIX}/chat/sessions/{{session_id}}/messages"),
 }
 
+#: v1.3. Authentication and account administration. Kept as its own set so the
+#: "v1.2 is unchanged" assertions below stay meaningful.
+AUTH_ROUTES = {
+    ("GET", f"{API_PREFIX}/auth/capability"),
+    ("POST", f"{API_PREFIX}/auth/signup"),
+    ("POST", f"{API_PREFIX}/auth/login"),
+    ("POST", f"{API_PREFIX}/auth/logout"),
+    ("GET", f"{API_PREFIX}/auth/me"),
+    ("POST", f"{API_PREFIX}/auth/password"),
+    ("POST", f"{API_PREFIX}/auth/password/reset"),
+    ("GET", f"{API_PREFIX}/admin/users"),
+    ("POST", f"{API_PREFIX}/admin/users/{{user_id}}/approve"),
+    ("POST", f"{API_PREFIX}/admin/users/{{user_id}}/disable"),
+    ("POST", f"{API_PREFIX}/admin/users/{{user_id}}/admin"),
+}
+
+ALL_ROUTES = EXPECTED_ROUTES | AUTH_ROUTES
+
 #: Never acceptable anywhere in a response schema.
 FORBIDDEN_FIELDS = {
     "score", "retrieval_score", "similarity", "confidence", "relevance",
@@ -64,17 +82,31 @@ class TestRoutes:
             for method in ops
             if method.upper() in {"GET", "POST", "PUT", "PATCH", "DELETE"}
         }
-        assert actual == EXPECTED_ROUTES
+        assert actual == ALL_ROUTES
 
-    def test_only_chat_writes_exist(self, spec):
-        """Chat persistence cannot introduce document/source write endpoints."""
+    def test_no_write_endpoint_touches_a_document(self, spec):
+        """Nothing that was added may write to a document or its permissions.
+
+        The POST allow-list is explicit rather than a prefix rule: chat
+        persists turns, auth manages sessions and accounts, and administration
+        approves people. None of them is a route by which a document, a
+        revision or a permission row can be created or changed -- the corpus
+        stays read-only, and the ACL is still edited outside the API.
+        """
+        allowed_post_prefixes = (
+            f'{API_PREFIX}/chat/sessions',
+            f'{API_PREFIX}/auth/',
+            f'{API_PREFIX}/admin/users',
+        )
         for path, ops in spec["paths"].items():
             for method in ops:
                 assert method.upper() not in {"PUT", "PATCH", "DELETE"}, (
                     f"{method.upper()} {path} must not exist"
                 )
                 if method.upper() == 'POST':
-                    assert path.startswith(f'{API_PREFIX}/chat/sessions')
+                    assert path.startswith(allowed_post_prefixes), path
+                    assert '/documents' not in path
+                    assert 'permission' not in path
 
     def test_document_delete_route_is_absent(self, spec):
         assert "delete" not in spec["paths"].get(f"{API_PREFIX}/documents/{{document_id}}", {})
@@ -188,7 +220,7 @@ class TestDocumentSummaryContract:
         assert 'chat' in schemas['DocumentDetailOut']['properties']
         assert set(schemas['ChatCapabilityOut']['properties']) == {'available'}
         assert set(schemas['SummaryOut']['properties']) == {
-            'state', 'content', 'generated_at', 'available', 'revision_id',
+            'state', 'reason', 'content', 'generated_at', 'available', 'revision_id',
         }
 
     def test_summary_does_not_expose_the_provider_or_the_model(self, spec):
@@ -205,6 +237,53 @@ class TestDocumentSummaryContract:
         # so it never needs a new value in the database status CHECK.
         assert schemas['SummaryOut']['properties']['available']['type'] == 'boolean'
         assert schemas['SummaryOut']['properties']['state']['type'] == 'string'
+
+
+class TestAuthContract:
+    """v1.3. The authentication surface mentions no department anywhere.
+
+    The organisation does not use them. The column and the department ACL
+    principal stay for the documents that carry them, but nothing a person
+    sees or sends in order to sign in refers to one.
+    """
+
+    def test_no_auth_schema_carries_a_department(self, spec):
+        schemas = response_schemas(spec)
+        for name in (
+            'SignupRequest', 'LoginRequest', 'MeResponse', 'AdminUserOut',
+            'ChangePasswordRequest', 'ResetPasswordRequest', 'SetAdminRequest',
+            'SignupResponse', 'AuthCapabilityResponse',
+        ):
+            fields = set(schemas[name]['properties'])
+            assert not {'department', 'department_id', 'department_name'} & fields, name
+
+    def test_signup_takes_four_fields(self, spec):
+        schemas = response_schemas(spec)
+        assert set(schemas['SignupRequest']['properties']) == {
+            'login_id', 'name', 'password', 'password_confirm',
+        }
+        assert schemas['SignupRequest']['additionalProperties'] is False
+
+    def test_no_auth_response_can_return_a_credential(self, spec):
+        schemas = response_schemas(spec)
+        for name in ('MeResponse', 'AdminUserOut', 'SignupResponse'):
+            fields = set(schemas[name]['properties'])
+            assert not {
+                'password', 'password_hash', 'token', 'token_hash',
+                'session_token', 'reset_token', 'reset_token_hash',
+            } & fields, name
+
+    def test_approval_has_no_request_body(self, spec):
+        approve = spec['paths'][f'{API_PREFIX}/admin/users/{{user_id}}/approve']['post']
+        # One decision -- may this person sign in. A body would be somewhere
+        # for a second one to creep in.
+        assert 'requestBody' not in approve
+
+    def test_there_is_no_department_endpoint_for_administration(self, spec):
+        assert f'{API_PREFIX}/admin/departments' not in spec['paths']
+        # The pre-existing metadata endpoint is untouched: documents still use
+        # departments, and removing it would be an unrelated breaking change.
+        assert f'{API_PREFIX}/departments' in spec['paths']
 
 
 class TestDisabledGenerationContract:
@@ -313,7 +392,7 @@ class TestFolderContract:
     """API Contract v1.1 section 12."""
 
     def test_folders_is_the_only_addition(self, spec):
-        """v1.1 is additive: v1's ten routes are untouched."""
+        """Every revision so far has been additive: earlier routes are untouched."""
         v1_routes = EXPECTED_ROUTES - {("GET", f"{API_PREFIX}/folders")}
         actual = {
             (method.upper(), path)
@@ -321,7 +400,8 @@ class TestFolderContract:
             for method in methods
         }
         assert v1_routes <= actual
-        assert len(actual) == 11
+        # 11 through v1.2, plus the eleven v1.3 authentication routes.
+        assert len(actual) == len(ALL_ROUTES) == 22
 
     def test_a_folder_carries_a_canonical_path_and_a_display_name(self, spec):
         """Separate fields, because for a legacy folder they differ entirely.

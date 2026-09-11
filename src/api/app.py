@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .dependencies import app_env, is_production
 from .errors import ApiError
-from .routers import chat, documents, folders, metadata, search
+from .routers import auth, chat, documents, folders, metadata, search
 
 logger = logging.getLogger("api")
 
@@ -153,6 +153,10 @@ def create_app() -> FastAPI:
             request, ApiError("INTERNAL_ERROR", "서버 오류가 발생했습니다.")
         )
 
+    # First: a browser has to be able to reach the login page's endpoints
+    # before it can reach anything that requires being logged in.
+    app.include_router(auth.router, prefix=API_PREFIX)
+    app.include_router(auth.admin_router, prefix=API_PREFIX)
     app.include_router(search.router, prefix=API_PREFIX)
     app.include_router(documents.router, prefix=API_PREFIX)
     app.include_router(metadata.router, prefix=API_PREFIX)

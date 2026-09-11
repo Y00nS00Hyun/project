@@ -27,6 +27,17 @@ class SummaryOut(BaseModel):
 
     #: PENDING | RUNNING | SUCCESS | FAILED | SKIPPED, mirroring the revision.
     state: str
+    #: Why, when the state alone is ambiguous. SKIPPED covers three different
+    #: situations that need three different sentences on screen, and without
+    #: this a document that was too large to summarize is described to the
+    #: reader as having no text in it.
+    #:
+    #: A small closed vocabulary of its own, not the worker's internal
+    #: result_code passed through: this is an explanation owed to a reader, so
+    #: it must stay stable even when the pipeline's codes change.
+    #:
+    #: NO_TEXT | TOO_LARGE | PROVIDER_DISABLED | null
+    reason: str | None = None
     #: Only ever set when state is SUCCESS.
     content: str | None = None
     generated_at: datetime | None = None

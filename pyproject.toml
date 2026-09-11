@@ -22,6 +22,10 @@ api = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "psycopg[binary]>=3.1",
+    # Argon2id for the development-only local login. Apache-2.0/MIT.
+    # Not a general dependency: nothing outside src/auth imports it, and it
+    # goes away with that package when SSO replaces it.
+    "argon2-cffi>=23.1",
 ]
 
 # Production LLM provider. Optional: the default provider makes no external

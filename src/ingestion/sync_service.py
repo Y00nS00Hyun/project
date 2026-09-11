@@ -181,6 +181,10 @@ class SyncService:
             original_filename=discovered.canonical_filename,
             source_path=discovered.relative_path,
             file_type=discovered.extension,
+            # Part of the same transaction as the document row, so a document
+            # is never momentarily in a state the deployment's policy did not
+            # ask for. Defaults to false; see IngestionConfig.document_access.
+            grant_public_read=self.config.document_access == "all_active_users",
         )
         revision_id = repo.create_revision(
             document_id=document_id,

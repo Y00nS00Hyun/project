@@ -12,15 +12,23 @@ function renderCard(item = makeItem()) {
 }
 
 describe('ResultCard', () => {
-  it('shows title, department, file type and snippet', () => {
+  it('shows title, file type and snippet', () => {
     renderCard()
     expect(screen.getByRole('link', { name: '2026년 AI 문서관리 사업계획서' })).toHaveAttribute(
       'href',
       '/documents/doc-1',
     )
-    expect(screen.getByText('기획조정실')).toBeInTheDocument()
     expect(screen.getByText('HWPX')).toBeInTheDocument()
     expect(screen.getByText(/총 사업비는 300,000,000원이며/)).toBeInTheDocument()
+  })
+
+  it('does not show the document department', () => {
+    // The organisation does not use departments, so every result would carry
+    // the same word -- a meta line should help somebody choose between
+    // results. The field is still in the response and the fixture still sends
+    // it, so this fails if the rendering comes back.
+    renderCard()
+    expect(screen.queryByText('기획조정실')).not.toBeInTheDocument()
   })
 
   it('shows the matched position from the anchor', () => {

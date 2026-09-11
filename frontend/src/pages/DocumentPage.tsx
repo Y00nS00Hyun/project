@@ -108,8 +108,13 @@ function DocumentContent({ documentId }: { documentId: string }) {
       <BackLink />
       <h1 className="page-title">{doc.title}</h1>
 
+      {/* No department row. The organisation does not use departments, so the
+          field could only ever read "-" or name something nobody navigates by.
+          documents.department_id, the departments table, the department ACL
+          principal and GET /departments are all untouched -- and so is
+          DocumentDetail.department in the response, because removing a field
+          from a served schema is a breaking change for no gain. */}
       <dl className="detail-grid">
-        <Field label="부서" value={doc.department?.name ?? '-'} />
         <Field label="파일 형식" value={fileTypeLabel(doc.file_type)} />
         <Field label="등록일" value={formatDate(doc.created_at)} />
         <Field label="수정일" value={formatDate(doc.updated_at)} />

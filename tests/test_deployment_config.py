@@ -307,3 +307,44 @@ class TestDockerIgnore:
         for pattern in (".git", ".env", "frontend/node_modules/", "__pycache__/", "artifacts/"):
             assert pattern in text
         assert "!.env.example" in text
+
+
+class TestLocalAuthDefaults:
+    """The authentication switches must ship closed.
+
+    An authentication path is something a deployment turns on deliberately.
+    A default of "on" would mean every new environment gets a password login
+    it never asked for, and a signup form open to whoever can reach it.
+    """
+
+    def test_compose_defaults_every_switch_to_off(self):
+        compose = (ROOT / "compose.yaml").read_text()
+        for name in ("LOCAL_AUTH_ENABLED", "SELF_SIGNUP_ENABLED", "AUTH_COOKIE_SECURE"):
+            assert f"{name}: ${{{name}:-false}}" in compose, name
+
+    def test_the_example_env_ships_them_off(self):
+        lines = (ROOT / ".env.example").read_text().splitlines()
+        settings = dict(
+            line.split("=", 1) for line in lines if "=" in line and not line.startswith("#")
+        )
+        assert settings["LOCAL_AUTH_ENABLED"] == "false"
+        assert settings["SELF_SIGNUP_ENABLED"] == "false"
+
+    def test_the_department_setting_is_gone(self):
+        """Local Auth no longer has any department input at all.
+
+        Left behind, it would be a setting that looks like it does something
+        and does not -- and the thing it used to do was place new accounts
+        somewhere documents might be granted.
+        """
+        for name in ("compose.yaml", ".env.example"):
+            assert "LOCAL_AUTH_DEFAULT_DEPARTMENT_ID" not in (ROOT / name).read_text()
+
+    def test_no_password_or_secret_is_committed_in_the_example(self):
+        text = (ROOT / ".env.example").read_text()
+        for line in text.splitlines():
+            if line.startswith("#") or "=" not in line:
+                continue
+            name, value = line.split("=", 1)
+            if any(word in name for word in ("PASSWORD", "SECRET", "KEY", "TOKEN")):
+                assert value.strip() == "", f"{name} must ship empty"

@@ -40,8 +40,8 @@ function Body({ summary }: { summary: Summary }) {
 
   // Checked before the per-state messages: when generation is off, "생성 중"
   // would be a promise nothing in this deployment can keep.
-  if (!summary.available) {
-    return <p className="state-hint">이 환경에서는 문서 요약을 생성하지 않습니다.</p>
+  if (!summary.available || summary.reason === 'PROVIDER_DISABLED') {
+    return <p className="state-hint">요약 기능이 현재 비활성화되어 있습니다.</p>
   }
 
   switch (summary.state) {
@@ -49,6 +49,13 @@ function Body({ summary }: { summary: Summary }) {
     case 'RUNNING':
       return <p className="state-hint">요약을 생성하고 있습니다. 잠시 후 다시 확인해 주세요.</p>
     case 'SKIPPED':
+      // One status, three causes. Saying "본문이 없습니다" about a document
+      // that was simply too large is wrong in a way the reader cannot detect.
+      if (summary.reason === 'TOO_LARGE') {
+        return (
+          <p className="state-hint">문서가 너무 커 현재 요약을 생성할 수 없습니다.</p>
+        )
+      }
       return <p className="state-hint">이 문서에는 요약할 본문이 없습니다.</p>
     default:
       // FAILED, or SUCCESS with no stored text. Both mean the same thing to a

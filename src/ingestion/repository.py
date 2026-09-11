@@ -100,8 +100,20 @@ class IngestionRepository:
         return _document_row(row) if row else None
 
     def create_document(
-        self, *, title: str, original_filename: str, source_path: str, file_type: str
+        self, *, title: str, original_filename: str, source_path: str, file_type: str,
+        grant_public_read: bool = False,
     ) -> str:
+        """Register a newly discovered file.
+
+        ``grant_public_read`` writes the one permission row that makes the
+        document readable by every approved account. It happens in the same
+        transaction as the insert, so a document is never briefly visible to
+        nobody and never briefly visible to everyone -- it starts in exactly
+        the state the deployment's policy says it should.
+
+        Left false, the document starts readable by nobody, which is the
+        schema's default and always has been.
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 """
@@ -111,7 +123,30 @@ class IngestionRepository:
                 """,
                 (title, original_filename, source_path, file_type),
             )
-            return str(cur.fetchone()[0])
+            document_id = str(cur.fetchone()[0])
+            if grant_public_read:
+                cur.execute(
+                    """
+                    INSERT INTO document_permissions (document_id, is_public, permission)
+                    VALUES (%s, TRUE, 'READ')
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (document_id,),
+                )
+            return document_id
+
+    def grant_public_read(self, document_id: str) -> bool:
+        """Make one already-registered document readable by approved accounts."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO document_permissions (document_id, is_public, permission)
+                VALUES (%s, TRUE, 'READ')
+                ON CONFLICT DO NOTHING
+                """,
+                (document_id,),
+            )
+            return cur.rowcount == 1
 
     # -- document kind -----------------------------------------------------
     #

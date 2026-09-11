@@ -52,9 +52,23 @@ describe('DocumentPage', () => {
     renderAt(<DocumentPage />, PATH, ROUTE)
 
     expect(await screen.findByRole('heading', { name: '2026년 AI 문서관리 사업계획서' })).toBeInTheDocument()
-    expect(screen.getByText('기획조정실')).toBeInTheDocument()
     expect(screen.getByText('HWPX')).toBeInTheDocument()
     expect(screen.getByText('보안')).toBeInTheDocument()
+  })
+
+  it('does not show the document department', async () => {
+    // The fixture still carries one, so this fails if the row comes back
+    // rather than passing because nothing was sent.
+    vi.stubGlobal('fetch', mockFetch({
+      ...NO_CHAT_SESSIONS,
+      '/api/v1/documents/doc-1/revisions': revisionsResponse(),
+      '/api/v1/documents/doc-1': makeDetail(),
+    }))
+    renderAt(<DocumentPage />, PATH, ROUTE)
+
+    await screen.findByRole('heading', { name: '2026년 AI 문서관리 사업계획서' })
+    expect(screen.queryByText('기획조정실')).not.toBeInTheDocument()
+    expect(screen.queryByText('부서')).not.toBeInTheDocument()
   })
 
   it('keeps the served revision and the newest revision apart', async () => {

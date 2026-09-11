@@ -22,7 +22,8 @@ from support import pgtest
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DOC = ROOT / "docs" / "database-schema-v2.5.md"
 
-EXPECTED_TABLE_COUNT = 16
+#: 16 through migration 0002, plus local_auth_credentials and auth_sessions.
+EXPECTED_TABLE_COUNT = 18
 
 #: Alembic's own bookkeeping table is not part of the application schema.
 ALEMBIC_TABLE = "alembic_version"
@@ -144,6 +145,9 @@ class TestSchemaShape:
             "document_permissions", "processing_jobs", "tags", "document_tags",
             "revision_tags", "favorites", "recent_views", "chat_sessions",
             "chat_messages", "chat_message_sources", "audit_logs",
+            # 0003: authentication, kept apart from `users` so that removing or
+            # replacing it cannot disturb identity or permissions.
+            "local_auth_credentials", "auth_sessions",
         }
         actual = {
             r[0] for r in rows(

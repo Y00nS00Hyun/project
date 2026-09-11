@@ -117,6 +117,24 @@ DEFAULT_JOB_MAX_ATTEMPTS = 3
 #: is configurable with a conservative default.
 DEFAULT_MISSING_GRACE_SECONDS = 24 * 60 * 60
 
+#: Who may read a document the moment it is ingested.
+#:
+#:   "none"              nobody. Permissions are granted afterwards, by hand.
+#:   "all_active_users"  every approved account, via one public permission row.
+#:
+#: The code default is "none" because that is the safe direction to be wrong
+#: in: a deployment that forgets the setting ends up with documents nobody can
+#: read, which is noticed immediately and fixed in one command. The opposite
+#: mistake publishes a corpus quietly.
+#:
+#: This installation runs "all_active_users" -- see .env.example. That is sound
+#: only because of a precondition outside this code: confidential, HR and
+#: payroll material is excluded at collection time rather than filtered at read
+#: time. If that ever stops being true, this setting is the first thing to
+#: change.
+DEFAULT_DOCUMENT_ACCESS = "none"
+DOCUMENT_ACCESS_MODES = ("none", "all_active_users")
+
 
 @dataclass(frozen=True)
 class IngestionConfig:
@@ -140,6 +158,7 @@ class IngestionConfig:
     embedding_allow_download: bool = False
 
     trigram_threshold: float = DEFAULT_TRIGRAM_THRESHOLD
+    document_access: str = DEFAULT_DOCUMENT_ACCESS
     title_boost_weight: float = DEFAULT_TITLE_BOOST_WEIGHT
 
     follow_symlinks: bool = False
@@ -180,6 +199,13 @@ class IngestionConfig:
             raise ConfigurationError("trigram_threshold must be in (0.0, 1.0]")
         if self.title_boost_weight < 0.0:
             raise ConfigurationError("title_boost_weight must be >= 0")
+        if self.document_access not in DOCUMENT_ACCESS_MODES:
+            # An unrecognised value is refused rather than treated as one of
+            # them: guessing here decides who can read the corpus.
+            raise ConfigurationError(
+                "DOCUMENT_DEFAULT_ACCESS must be one of "
+                + ", ".join(DOCUMENT_ACCESS_MODES)
+            )
         if self.follow_symlinks:
             # Allowed, but the caller is opting out of the escape protection
             # that keeps a scan inside the shared root.
@@ -236,6 +262,9 @@ def config_from_env(shared_root: Path | str | None = None) -> IngestionConfig:
         trigram_threshold=float(
             os.environ.get("TRIGRAM_THRESHOLD", DEFAULT_TRIGRAM_THRESHOLD)
         ),
+        document_access=os.environ.get(
+            "DOCUMENT_DEFAULT_ACCESS", DEFAULT_DOCUMENT_ACCESS
+        ).strip().lower(),
         title_boost_weight=float(
             os.environ.get("TITLE_BOOST_WEIGHT", DEFAULT_TITLE_BOOST_WEIGHT)
         ),

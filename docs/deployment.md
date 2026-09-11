@@ -292,29 +292,201 @@ docker compose up -d backend
 
 ---
 
-## 10. Authentication / SSO
+## 10. Authentication
+
+회사에 SSO / OIDC / SAML / LDAP / AD 기반 통합 로그인이 **없다.** 따라서 이 시스템의
+운영 인증은 Local Auth(아이디 + 비밀번호)이며 production에서도 이것을 쓴다.
 
 ```text
-Production SSO    NOT IMPLEMENTED
+LOCAL_AUTH_ENABLED     기본 false   비밀번호 로그인을 제공하는가
+SELF_SIGNUP_ENABLED    기본 false   새 계정 생성을 허용하는가
 ```
 
-`APP_ENV=production`에서 `require_user()`는 모든 요청을 401로 거절한다.
-아직 인증 공급자가 없기 때문이며, 이것이 fail-closed 기본값이다.
+둘 다 기본 false다. `APP_ENV`나 credential 존재만으로 **자동 활성화되지 않는다.**
+인증 경로는 배포가 물려받는 것이 아니라 운영자가 켜는 것이어야 한다.
 
-따라서 **UI는 정상적으로 뜨지만 검색/채팅 API는 401을 반환한다.**
-이는 배포 실패가 아니다.
+### 10.1 켜기
+
+`.env`:
 
 ```text
-배포 인프라 동작   ≠   직원 인증 동작
+LOCAL_AUTH_ENABLED=true
+SELF_SIGNUP_ENABLED=true
+LOCAL_AUTH_SESSION_DAYS=7
+AUTH_COOKIE_SECURE=true                        # HTTPS 뒤에 있을 때. 평문 HTTP면 false
 ```
 
-개발용 `X-Debug-User-Id` 헤더는 `APP_ENV`가
-`test/testing/development/dev/local`일 때만 동작하며,
+`AUTH_COOKIE_SECURE`를 요청에서 추측하지 않고 설정으로 받는 이유는 요청이
+클라이언트가 통제하는 것이기 때문이다. 평문 HTTP에서 `Secure` cookie는 아예 저장되지
+않으므로 TLS가 없으면 반드시 false여야 한다.
+
+```bash
+docker compose up -d --force-recreate backend
+```
+
+### 10.2 끄기 (production fail-closed로 되돌리기)
+
+```text
+LOCAL_AUTH_ENABLED=false
+```
+
+`docker compose up -d --force-recreate backend`. 이 순간부터 로그인은 503이고, **이미
+발급된 세션도 더 이상 확인되지 않는다** -- 새 로그인만 막는 것이 아니라 기존 세션도 끝난다.
+모든 보호된 API는 401로 돌아간다.
+
+### 10.3 첫 관리자
+
+HTTP로는 만들 수 없다. 공개 가입 양식이 관리자를 찍어내면 그 자체가 시스템 탈취 경로다.
+
+```bash
+# 1) 브라우저에서 /signup 으로 직접 가입 (비밀번호는 본인만 안다)
+# 2) 서버에서 승인하고 관리자로 지정
+docker compose exec backend python -m auth approve --login-id <아이디>
+docker compose exec backend python -m auth grant-admin --login-id <아이디>
+# 3) 문서 열람 권한 부여 (승인과 별개다)
+docker compose exec backend python -m auth grant-user-read \
+    --login-id <아이디> --all-current-documents
+```
+
+이후 관리자는 `/admin` 화면에서 나머지 사람을 승인한다.
+
+### 10.4 계정 수명주기
+
+```text
+signup ──► PENDING ──(관리자 승인)──► ACTIVE ──(비활성화)──► DISABLED
+```
+
+가입과 접근 허용은 같은 행위가 아니다. PENDING 계정은 로그인 단계에서
+"관리자 승인 대기 중입니다."로 차단된다.
+
+`status`는 로그인 시점뿐 아니라 **매 요청의 세션 확인에서도** 검사하므로, 계정을
+비활성화하면 그 사람의 살아 있는 세션도 즉시 끝난다.
+
+### 10.5 문서 열람 권한
+
+**승인 자체는 문서 권한을 부여하지 않는다.** status를 ACTIVE로 바꾸는 것이 전부다.
+무엇을 읽을 수 있는지는 `document_permissions` 가 정하며, 신규 문서에 무엇을 쓸지는
+`DOCUMENT_DEFAULT_ACCESS` 가 정한다.
+
+```text
+none              수집된 문서를 아무도 못 읽는다. 이후 수동으로 부여.
+all_active_users  승인된 계정 전원이 읽는다. 문서당 공개 권한 행 하나.
+```
+
+이 설치는 `all_active_users` 로 운영한다. 이것이 타당한 것은 **이 코드 밖의 전제** 때문이다 --
+공유폴더에는 일반 사내 문서만 두고, 기밀·인사·급여 문서는 읽기 시점에 걸러내는 것이 아니라
+**수집 대상에서 아예 제외한다.** 그 전제가 바뀌면 가장 먼저 이 설정을 바꾼다.
+
+코드 기본값은 `none` 이다. 설정을 빠뜨린 배포는 아무도 문서를 못 읽는 상태가 되는데, 이는
+즉시 드러나고 명령 한 줄로 고칠 수 있다. 반대 방향의 실수는 조용히 문서를 공개한다.
+
+기존 문서에 소급 적용:
+
+```bash
+docker compose exec backend python -m auth grant-public-read --all-current-documents
+```
+
+#### 바뀌지 않은 것
+
+```text
+default deny       권한 행이 없는 문서는 여전히 아무도 못 읽는다
+ACL before retrieval   같은 predicate 가 같은 자리(후보 CTE)에서 실행된다
+개별 권한          문서별·사용자별 grant 는 그대로 동작한다
+익명 접근 없음     비로그인 요청은 401. "전원" 은 "승인된 계정 전원" 이다
+```
+
+공개 권한은 **principal 하나가 늘어난 것**이지 predicate 가 참을 반환하게 된 것이 아니다.
+문서 하나를 비공개로 되돌리려면 그 행을 지우면 되고, 그 뒤에는 개별 grant 만 적용된다 --
+코드 변경도 schema 변경도 필요 없다.
+
+향후 문서별 권한이 필요해지면:
+
+```bash
+# 특정 문서의 공개 권한 회수
+psql> DELETE FROM document_permissions WHERE document_id = '<id>' AND is_public;
+
+# 특정 사용자에게만 부여
+docker compose exec backend python -m auth grant-user-read \
+    --login-id <아이디> --all-current-documents
+docker compose exec backend python -m auth revoke-user-read --login-id <아이디>
+```
+
+**부서는 쓰지 않는다.** 회사가 부서 구분을 사용하지 않으므로 가입·승인 어느 쪽도 부서를
+다루지 않고, 신규 계정의 `department_id` 는 NULL 이다. `departments` 테이블과
+DEPARTMENT principal 은 기존 문서를 위해 남아 있을 뿐 인증은 거기에 의존하지 않는다.
+
+### 10.5.1 비밀번호
+
+```bash
+# 본인 변경: 화면에서. 현재 비밀번호를 확인하고, 다른 세션은 모두 종료된다.
+
+# 분실 시: 관리자가 재설정 토큰을 발급한다 (임시 비밀번호가 아니다)
+docker compose exec backend python -m auth reset-password --login-id <아이디>
+```
+
+토큰을 받은 사람이 `/reset-password` 에서 **직접** 새 비밀번호를 정한다. 관리자가 임시
+비밀번호를 설정하면 그 비밀번호를 관리자가 알게 되고, 계정은 그 사람의 기억과 전달
+경로만큼만 안전해진다. 토큰은 30분 후 만료되고 1회만 쓸 수 있으며, 사용하면 그 계정의
+모든 세션이 종료된다.
+
+### 10.6 CLI
+
+```bash
+docker compose exec backend python -m auth list-users [--status PENDING]
+docker compose exec backend python -m auth approve --login-id <id>
+docker compose exec backend python -m auth disable --login-id <id>
+docker compose exec backend python -m auth grant-admin --login-id <id>
+docker compose exec backend python -m auth revoke-admin --login-id <id>
+docker compose exec backend python -m auth reset-password --login-id <id>
+docker compose exec backend python -m auth grant-user-read --login-id <id> --all-current-documents
+docker compose exec backend python -m auth revoke-user-read --login-id <id>
+```
+
+마지막 관리자는 비활성화되지도, 권한이 해제되지도 않는다 -- CLI 와 API 양쪽에서 거절한다.
+관리자가 0명인 설치는 아무도 승인할 수 없고 아무에게도 권한을 되돌려 줄 수 없어서
+장비에서 복구해야 한다.
+
+### 10.6.1 감사 기록
+
+다음 이벤트가 `audit_logs` 에 남는다. 비밀번호·해시·세션 토큰·재설정 토큰은 어떤 형태로도
+기록하지 않으며, metadata 에 그런 키가 들어오면 저장 직전에 제거하고 제거했다는 사실을
+남긴다.
+
+```text
+AUTH_SIGNUP                AUTH_USER_APPROVED       AUTH_USER_DISABLED
+AUTH_LOGIN_SUCCEEDED       AUTH_LOGIN_FAILED        AUTH_LOGOUT
+AUTH_ADMIN_GRANTED         AUTH_ADMIN_REVOKED
+AUTH_PASSWORD_CHANGED      AUTH_PASSWORD_RESET_ISSUED   AUTH_PASSWORD_RESET_USED
+```
+
+`audit_logs.actor_user_id` 가 `users(id)` 를 참조하므로, 감사 기록이 남은 사용자는 행을
+지울 수 없다. 사용자 삭제로 기록이 사라지지 않는다는 뜻이며 의도된 동작이다.
+
+### 10.7 debug identity header
+
+개발용 `X-Debug-User-Id`는 `APP_ENV`가 `test/testing/development/dev/local`일 때만
+동작하며 **production에서는 local auth 설정과 무관하게 계속 무시된다.**
 production 프론트엔드 번들에는 그 코드 자체가 컴파일되어 남지 않는다.
-배포 편의를 위해 이것을 production에서 켜지 않는다.
 
-다음 단계는 조직의 실제 인증 방식(SAML / OIDC / LDAP / 사내 게이트웨이)을
-확인한 뒤 진행한다.
+인증 우선순위:
+
+```text
+1. local auth session cookie   (모든 환경)
+2. debug identity header       (non-production 에서만)
+```
+
+cookie를 먼저 보는 이유는 그것이 실제 사람이 가진 것이기 때문이다. 스크립트에 남아 있는
+오래된 header가 방금 로그인한 세션을 덮어써서는 안 된다.
+
+### 10.8 다른 인증 방식으로 교체할 때
+
+인증이 성공하면 그 뒤로는 **user_id 하나만** 기존 경로로 넘어간다.
+
+```text
+인증 (무엇이든) ──► user_id ──► users ──► department ──► document_permissions
+```
+
+`require_user`는 권한 로직을 복제하지 않는다. 다른 방식은 user_id만 만들어내면 된다.
 
 ---
 

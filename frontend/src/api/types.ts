@@ -116,6 +116,12 @@ export interface ChatCapability {
  */
 export interface DocumentSummary {
   state: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED'
+  /**
+   * Why, when the state alone is ambiguous. SKIPPED means three different
+   * things -- nothing to summarize, too large to summarize, or generation
+   * switched off -- and they need three different sentences.
+   */
+  reason: 'NO_TEXT' | 'TOO_LARGE' | 'PROVIDER_DISABLED' | null
   /** Only ever set when state is SUCCESS. */
   content: string | null
   generated_at: string | null
@@ -312,3 +318,34 @@ export const MESSAGE_MAX_LENGTH = 4000
 
 export const CHAT_SESSION_PAGE_SIZE = 20
 export const CHAT_MESSAGE_PAGE_SIZE = 50
+
+// ---------------------------------------------------------------------------
+// Authentication (contract v1.3, src/api/schemas/auth.py)
+// ---------------------------------------------------------------------------
+
+export interface AuthCapability {
+  local_auth_enabled: boolean
+  signup_enabled: boolean
+}
+
+export interface CurrentUser {
+  user_id: string
+  name: string | null
+  /** Whether to offer the admin page. Not what authorises it -- the server checks. */
+  is_system_admin: boolean
+}
+
+/** Signing up produces an account awaiting approval, never a session. */
+export interface SignupResult {
+  status: string
+  message: string
+}
+
+export interface AdminUser {
+  user_id: string
+  login_id: string | null
+  name: string | null
+  status: 'PENDING' | 'ACTIVE' | 'DISABLED'
+  is_system_admin: boolean
+  created_at: string
+}

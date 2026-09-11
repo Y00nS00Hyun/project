@@ -91,18 +91,75 @@ def get_search_service() -> SearchService:
     return SearchService(connection_factory(), get_config(), query_embedder=get_query_embedder())
 
 
-def require_user(request: Request) -> AuthenticatedUser:
-    """Resolve the authenticated user.
+def get_local_auth_config():
+    """Resolved per request rather than cached.
 
-    Real SSO is not implemented yet. Until it is, a development-only provider
-    accepts an identity header -- but only outside production, and only for a
-    user that actually exists. In production the header is ignored entirely and
-    the request is rejected, so a misconfigured deployment fails closed rather
-    than silently trusting a client-supplied id.
+    The switches are read live so that turning local auth off takes effect
+    without a restart -- which matters most in the direction that closes it.
     """
+    from auth.config import LocalAuthConfig
+
+    return LocalAuthConfig.from_env(production=is_production())
+
+
+def require_admin_user(request: Request) -> AuthenticatedUser:
+    """Authenticate, then require the system-administrator flag.
+
+    A separate dependency rather than a check inside each handler, so an
+    administrative route cannot be added without one.
+    """
+    from auth.service import NotAnAdministrator
+
+    user = require_user(request)
+    try:
+        get_auth_service().require_admin(user.user_id)
+    except NotAnAdministrator:
+        from .errors import ApiError
+
+        # 403, not 404: the caller is authenticated and this is a real path
+        # they simply may not use. Nothing about it discloses another account.
+        raise ApiError("FORBIDDEN", "관리자 권한이 필요합니다.") from None
+    return user
+
+
+def get_auth_service():
+    from auth.repository import AuthRepository
+    from auth.service import AuthService
+
+    return AuthService(AuthRepository(connection_factory()), get_local_auth_config())
+
+
+def require_user(request: Request) -> AuthenticatedUser:
+    """Resolve the authenticated user, in a fixed order of preference.
+
+    There is no SSO, OIDC, SAML, LDAP or AD to defer to, so the local session
+    cookie is the real way in and works in every environment, production
+    included. It is still only available where an operator switched it on.
+
+        1. a local-auth session cookie -- how a person logs in
+        2. the debug identity header -- automated testing, never in production
+
+    The cookie is tried first because it is the one a person actually holds; a
+    stale header left in a script must not override the session somebody just
+    logged into.
+
+    Whichever succeeds yields a plain user id, and every access decision after
+    this point runs on that id through the existing
+    users -> department -> document_permissions path. No permission logic is
+    duplicated here and none is bypassed: authenticating establishes who you
+    are and says nothing whatsoever about what you may read. That separation is
+    also what keeps a future replacement cheap -- another mechanism would only
+    have to produce a user id.
+    """
+    session_user = _user_from_session(request)
+    if session_user is not None:
+        return session_user
+
     if is_production():
-        # No SSO wired up yet: production has no way to authenticate anyone.
-        raise unauthenticated("인증 공급자가 구성되지 않았습니다.")
+        # The header is a testing affordance and stays out of production
+        # regardless of how local auth is configured. With no valid session
+        # this is where a production request ends.
+        raise unauthenticated()
 
     raw = request.headers.get(DEBUG_USER_HEADER)
     if not raw:
@@ -111,7 +168,10 @@ def require_user(request: Request) -> AuthenticatedUser:
     with psycopg.connect(get_dsn()) as conn, conn.cursor() as cur:
         try:
             cur.execute(
-                "SELECT id, department_id FROM users WHERE id = %s AND is_active = TRUE",
+                # The debug identity obeys the same lifecycle as a real login:
+                # a pending or disabled account is not a way in either.
+                "SELECT id, department_id FROM users "
+                "WHERE id = %s AND is_active = TRUE AND status = 'ACTIVE'",
                 (raw,),
             )
         except psycopg.errors.InvalidTextRepresentation:
@@ -123,6 +183,31 @@ def require_user(request: Request) -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=str(row[0]),
         department_id=str(row[1]) if row[1] else None,
+    )
+
+
+def _user_from_session(request: Request) -> AuthenticatedUser | None:
+    """The local-auth cookie, if local auth is on and the session is live."""
+    from auth.config import SESSION_COOKIE
+
+    config = get_local_auth_config()
+    if not config.enabled:
+        return None
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+
+    from auth.repository import AuthRepository
+
+    session = AuthRepository(connection_factory()).resolve_session(token)
+    if session is None:
+        # Expired, revoked, deactivated or simply wrong. Returning None rather
+        # than raising lets the header fall through, and an invalid cookie ends
+        # as an ordinary 401.
+        return None
+    return AuthenticatedUser(
+        user_id=str(session["user_id"]),
+        department_id=str(session["department_id"]) if session["department_id"] else None,
     )
 
 

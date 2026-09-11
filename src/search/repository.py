@@ -21,7 +21,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 #: Permission values that grant read access. Allow-only model: a document with
-#: no matching permission row is invisible (default deny).
+#: no matching permission row is invisible (default deny). That still holds --
+#: the public principal is a row somebody wrote, not an absence of one.
 READ_PERMISSIONS = ("READ", "WRITE", "ADMIN")
 
 
@@ -33,7 +34,22 @@ READ_ACL_PREDICATE = """
         WHERE p.document_id = d.id
           AND p.permission = ANY(%(read_permissions)s)
           AND (
-              p.user_id = %(user_id)s
+              -- Granted to every approved account. "Approved" is spelled out
+              -- here rather than assumed: require_user does resolve a real,
+              -- ACTIVE user before this ever runs, but a branch that ignores
+              -- the caller entirely would hand these documents to any id at
+              -- all, including one that belongs to nobody. The join is already
+              -- present for the department branch, so saying so costs nothing.
+              --
+              -- Not anonymous access either: there is no path that reaches
+              -- this predicate without a user id.
+              (
+                  p.is_public
+                  AND u.id IS NOT NULL
+                  AND u.is_active = TRUE
+                  AND u.status = 'ACTIVE'
+              )
+              OR p.user_id = %(user_id)s
               OR (p.department_id IS NOT NULL AND p.department_id = u.department_id)
           )
     )

@@ -87,6 +87,11 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       SHARED_ROOT: ${SHARED_ROOT:-/data/shared}
 
+      # Who may read a document the moment it is ingested. Defaults to "none"
+      # -- documents readable by nobody is a mistake that gets noticed; a
+      # corpus published by accident is not.
+      DOCUMENT_DEFAULT_ACCESS: ${DOCUMENT_DEFAULT_ACCESS:-none}
+
       # Read from the read-only mount below. Never downloaded at runtime.
       EMBEDDING_CACHE_DIR: ${EMBEDDING_CACHE_DIR:-/opt/model-cache}
       # The chunking tokenizer calls AutoTokenizer.from_pretrained() without a
@@ -97,6 +102,15 @@ services:
       # Empty by default. The provider stays UnconfiguredProvider and no
       # request leaves the network; an API key present in the environment is
       # not enough on its own to turn generation on.
+      # Development-only local login. Both default to off, and both are
+      # ignored outside a non-production APP_ENV, so a production deployment
+      # cannot acquire a password login by copying an .env file.
+      LOCAL_AUTH_ENABLED: ${LOCAL_AUTH_ENABLED:-false}
+      SELF_SIGNUP_ENABLED: ${SELF_SIGNUP_ENABLED:-false}
+      LOCAL_AUTH_SESSION_DAYS: ${LOCAL_AUTH_SESSION_DAYS:-7}
+      # The session cookie is Secure only where there is TLS to be secure over.
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+
       # Second gate, defaulting to off. An operator who copies a provider and
       # a key into .env has still not authorised sending internal documents
       # anywhere; that takes setting this as well.

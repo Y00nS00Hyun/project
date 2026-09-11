@@ -3,7 +3,9 @@ import { screen, render, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { App } from './App'
-import { emptyMetadata, makeDetail, makeItem, makeRevision, makeSearchResponse, mockFetch } from './test/helpers'
+import { emptyMetadata, makeDetail,
+  NO_CHAT_SESSIONS,
+  SIGNED_IN, makeItem, makeRevision, makeSearchResponse, mockFetch } from './test/helpers'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -18,6 +20,10 @@ function HistoryControls() {
 
 it('preserves search conditions through detail navigation and browser history', async () => {
   vi.stubGlobal('fetch', mockFetch({
+    // App applies the route guard, so these pages only render for a signed-in
+    // user -- which is the point of the guard and has to be set up for.
+    ...SIGNED_IN,
+    ...NO_CHAT_SESSIONS,
     ...emptyMetadata,
     '/api/v1/search': makeSearchResponse([makeItem()], { page: 2, total: 30 }),
     '/api/v1/documents/doc-1/revisions': { items: [makeRevision()], page: 1, size: 20, total: 1 },
