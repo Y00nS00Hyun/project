@@ -89,6 +89,8 @@ class DocumentService:
             "tags": self._tags(document_id),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            "source_modified_at": row["source_modified_at"],
+            "document_date": row["document_date"],
             "current_revision": current,
             "latest_revision": latest,
             "is_searchable": current is not None,
@@ -196,8 +198,15 @@ class DocumentService:
                            d.department_id, dep.name AS department_name,
                            d.owner_id, o.name AS owner_name,
                            d.current_revision_id, d.latest_revision_id,
-                           d.missing_since, d.created_at, d.updated_at
+                           d.missing_since, d.created_at, d.updated_at,
+                           -- From the current revision: both describe the file
+                           -- being served, and a promoted revision brings its
+                           -- own mtime and its own cover date with it.
+                           r.source_mtime AS source_modified_at,
+                           r.document_date
                     FROM documents d
+                    LEFT JOIN document_revisions r
+                        ON r.id = d.current_revision_id AND r.document_id = d.id
                     LEFT JOIN departments dep ON dep.id = d.department_id
                     LEFT JOIN users o ON o.id = d.owner_id
                     WHERE d.id = %(document_id)s

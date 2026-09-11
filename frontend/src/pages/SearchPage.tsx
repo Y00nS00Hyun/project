@@ -92,6 +92,7 @@ export function SearchPage() {
               ) : (
                 <FolderTree
                   folders={folders.data?.items ?? []}
+                  totalDocuments={folders.data?.total_documents ?? 0}
                   loading={folders.loading}
                   selected={state.folderPath}
                   // The canonical path is handed straight back; nothing here

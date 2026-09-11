@@ -130,6 +130,74 @@ eligible AS (
 """
 
 # ---------------------------------------------------------------------------
+# Body exact-match boost
+#
+# The semantic route scores a document by the cosine of its best chunk plus a
+# trigram boost on the *title*. A rare token that lives only in the body has no
+# route into the score at all: measured on this corpus, e5 places every
+# document in a 0.78-0.85 band, and two documents that never mention
+# "Zookeeper" outranked one that mentions it six times.
+#
+# The fix is an additive boost, under two conditions that must both hold:
+#
+#   1. the query occurs verbatim in the document's body text
+#   2. that occurrence is rare across the candidate set
+#
+# The second condition is what a naive "boost on lexical evidence" gets wrong.
+# Strength and discrimination are different things. "파일 다운로드" occurs
+# verbatim in four of seven documents and "Zookeeper" in two; both are exact
+# matches, and only one says anything about which document to read. Boosting on
+# the common phrase demoted the right answers, which the evaluation measured
+# before this was written.
+#
+# It is a boost and never a gate. Every eligible document is still returned, in
+# relevance order; only the order changes.
+#
+# THE DENOMINATOR IS THE ELIGIBLE SET -- the same CTE every other part of this
+# query reads, so it is ACL-filtered before anything else and carries whatever
+# folder/year/tag/file-type filters the request asked for. Two consequences,
+# both deliberate:
+#
+#   * a document the caller may not read cannot influence the decision, because
+#     it is not in the set to be counted. Selectivity is computed over what
+#     this caller can see and nothing else.
+#   * with a filter applied, "rare" means rare among the documents being
+#     searched. That is the set the ranking is over, so it is the set the
+#     question is about; counting against the whole corpus would let a boost
+#     fire inside a three-document folder where the term is in all three.
+# ---------------------------------------------------------------------------
+BODY_EXACT_CTE = """
+body_exact AS (
+    -- ILIKE rather than lower(...) LIKE lower(...): the pg_trgm GIN index on
+    -- extracted_text can serve it, and wrapping the column in lower() could
+    -- not use that index on a corpus where it matters.
+    --
+    -- The pattern is assembled here from a bound parameter that the caller
+    -- already escaped for LIKE. The query string never becomes SQL text, and
+    -- a query containing a LIKE wildcard matches that character literally
+    -- instead of turning into a pattern that matches everything.
+    --
+    -- (Wildcards are named rather than written here: psycopg scans comments
+    -- for placeholders too, and a lone percent sign in one is a syntax error.)
+    SELECT e.document_id
+    FROM eligible e
+    WHERE %(body_exact_pattern)s::text IS NOT NULL
+      AND e.extracted_text IS NOT NULL
+      AND e.extracted_text ILIKE '%%' || %(body_exact_pattern)s::text || '%%' ESCAPE '\\'
+),
+body_exact_decision AS (
+    -- One row, always. A LEFT JOIN against it therefore never drops a
+    -- document, whichever way the decision went.
+    SELECT (
+        (SELECT count(*) FROM body_exact) > 0
+        AND (SELECT count(*) FROM body_exact)
+            <= (SELECT count(*) FROM eligible) * %(body_exact_selectivity_max)s
+    ) AS fires
+)
+"""
+
+
+# ---------------------------------------------------------------------------
 # Snippet selection
 #
 # The semantic-nearest chunk is the wrong snippet when the query is not really
@@ -220,6 +288,30 @@ _DOCUMENT_COLUMNS = """
 """
 
 
+def body_exact_pattern(query_text: str | None) -> str | None:
+    """The LIKE pattern body for an exact body match, or None to disable.
+
+    Normalisation is deliberately minimal -- surrounding whitespace removed,
+    and case handled by ILIKE at the point of comparison. Nothing else: no
+    stemming, no separator folding, no morphological analysis. The question
+    this signal answers is "does this document literally contain what was
+    typed", and anything cleverer stops answering it.
+
+    Escaping happens here rather than in SQL so the caller cannot forget. A
+    query of "100%" must match the characters "100%", not "100" followed by
+    anything at all -- and "_" must not match any single character. The escaped
+    value is passed as a bind parameter; the query string never becomes part of
+    the statement text.
+
+    Returns None for an empty or whitespace-only query, which disables the
+    boost rather than matching every document.
+    """
+    from .folder_paths import escape_like
+
+    stripped = (query_text or "").strip()
+    return escape_like(stripped) if stripped else None
+
+
 def _base_params(
     user_id: str,
     department_id: str | None,
@@ -305,6 +397,8 @@ class SearchRepository:
         query_vector: str,
         query_text: str | None = None,
         title_boost_weight: float = 0.0,
+        body_exact_boost_weight: float = 0.0,
+        body_exact_selectivity_max: float = 0.0,
         department_id: str | None,
         year: int | None,
         tag_ids: Sequence[int],
@@ -330,6 +424,7 @@ class SearchRepository:
         """
         sql = f"""
         WITH {ELIGIBLE_CTE},
+        {BODY_EXACT_CTE},
         scored AS (
             SELECT DISTINCT ON (c.document_id)
                    c.document_id,
@@ -356,14 +451,21 @@ class SearchRepository:
                COALESCE(sn.section_title, s.section_title)     AS section_title,
                COALESCE(sn.page_number, s.page_number)         AS page_number,
                COALESCE(sn.chunk_text, s.chunk_text)           AS chunk_text,
-               -- Title boost. Additive, so nothing is removed from the result
-               -- set: a document whose title has no bearing on the query keeps
-               -- its semantic score exactly.
-               s.score + %(title_boost_weight)s
-                       * word_similarity(%(query_text)s, e.title) AS score,
+               -- Both boosts are additive, so nothing is removed from the
+               -- result set: a document that matches neither keeps its
+               -- semantic score exactly.
+               s.score
+               + %(title_boost_weight)s * word_similarity(%(query_text)s, e.title)
+               + CASE
+                     WHEN d.fires AND x.document_id IS NOT NULL
+                     THEN %(body_exact_boost_weight)s
+                     ELSE 0
+                 END AS score,
                count(*) OVER () AS total_count
         FROM scored s
         JOIN eligible e ON e.document_id = s.document_id
+        CROSS JOIN body_exact_decision d
+        LEFT JOIN body_exact x ON x.document_id = s.document_id
         LEFT JOIN LATERAL (
             {SNIPPET_LATERAL}
         ) sn ON TRUE
@@ -378,6 +480,11 @@ class SearchRepository:
             "query_vector": query_vector,
             "query_text": query_text or "",
             "title_boost_weight": title_boost_weight,
+            # None disables the boost outright -- browse has no query, and a
+            # caller that has not opted in gets exactly the previous ranking.
+            "body_exact_pattern": body_exact_pattern(query_text),
+            "body_exact_boost_weight": body_exact_boost_weight,
+            "body_exact_selectivity_max": body_exact_selectivity_max,
             "limit": limit,
             "offset": offset,
         })

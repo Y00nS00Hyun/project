@@ -20,7 +20,7 @@ from ingestion.repository import IngestionRepository
 from ingestion.sync_service import SyncService
 from search.exceptions import InvalidSearchRequestError
 from search.folder_paths import escape_like, normalize_folder_path, subtree_prefix
-from search.folder_tree import folder_tree
+from search.folder_tree import browsable_document_count, folder_tree
 
 ALICE = "11111111-1111-1111-1111-111111111111"
 BOB = "22222222-2222-2222-2222-222222222222"
@@ -346,3 +346,51 @@ class TestTreeIsNotAFacet:
 
         params = set(inspect.signature(folder_tree).parameters)
         assert params == {"connection_factory", "user_id"}
+
+
+# ---------------------------------------------------------------------------
+# The root count
+# ---------------------------------------------------------------------------
+
+class TestBrowsableDocumentCount:
+    """What the tree's root row stands for: the whole shared folder.
+
+    Deliberately not derivable from the tree. A document at the top of the
+    shared folder contributes no folder row, so summing the depth-1 counts
+    would under-report -- and in a corpus with no subdirectories at all it
+    would report zero while the user can browse everything. That is exactly the
+    corpus this was built for.
+    """
+
+    def test_it_counts_a_top_level_document_that_makes_no_folder(self, world, factory):
+        # Alice may read 공용안내.hwpx at the top plus three under 프로젝트_A.
+        # The tree can only account for the three.
+        tree_total = sum(node.document_count for node in folder_tree(factory, ALICE)
+                         if node.depth == 1)
+        assert tree_total == 3
+        assert browsable_document_count(factory, ALICE) == 4
+
+    def test_it_counts_the_same_set_the_tree_is_built_from(self, world, factory):
+        # Bob's two documents both live in folders, so here the two agree --
+        # which is what makes the mismatch above a property of top-level files
+        # rather than of the counting.
+        tree_total = sum(node.document_count for node in folder_tree(factory, BOB)
+                         if node.depth == 1)
+        assert tree_total == browsable_document_count(factory, BOB) == 2
+
+    def test_an_unreadable_document_is_not_counted(self, world, factory):
+        # 비공개_프로젝트 is granted to nobody, and NOBODY holds no grant at all.
+        assert folder_tree(factory, NOBODY) == []
+        assert browsable_document_count(factory, NOBODY) == 0
+
+    def test_a_revision_that_is_not_ready_is_not_counted(self, world, factory, conn):
+        before = browsable_document_count(factory, ALICE)
+        conn.execute("UPDATE document_revisions SET embedding_status = 'PENDING'")
+        # Same condition the tree uses, so the root cannot claim documents that
+        # searching would not return.
+        assert browsable_document_count(factory, ALICE) == 0
+        assert folder_tree(factory, ALICE) == []
+        assert before == 4
+
+    def test_an_empty_user_id_counts_nothing(self, factory):
+        assert browsable_document_count(factory, "") == 0

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   anchorLabel,
+  formatDateOnly,
   formatFileSize,
   parseResultLabel,
   parseStatusLabel,
@@ -106,5 +107,25 @@ describe('formatFileSize', () => {
     expect(formatFileSize(512)).toBe('512 B')
     expect(formatFileSize(20480)).toBe('20 KB')
     expect(formatFileSize(null)).toBeNull()
+  })
+})
+
+describe('formatDateOnly', () => {
+  it('renders the day the document states', () => {
+    expect(formatDateOnly('2025-11-26')).toBe('2025. 11. 26.')
+  })
+
+  it('does not shift the day by timezone', () => {
+    // `new Date('2025-11-26')` is UTC midnight, which is 2025-11-25 for anyone
+    // west of Greenwich. The document printed a day; rendering a different one
+    // would be this code introducing an error the document does not contain.
+    expect(formatDateOnly('2025-01-01')).toBe('2025. 1. 1.')
+    expect(formatDateOnly('2025-12-31')).toBe('2025. 12. 31.')
+  })
+
+  it('says so when there is no date rather than inventing one', () => {
+    for (const value of [null, undefined, '', '2026', 'not-a-date']) {
+      expect(formatDateOnly(value as string | null)).toBe('알 수 없음')
+    }
   })
 })

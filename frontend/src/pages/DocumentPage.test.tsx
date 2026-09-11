@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DocumentPage } from './DocumentPage'
 import {
@@ -85,10 +85,10 @@ describe('DocumentPage', () => {
     // Rev 2 is what search serves; Rev 3 exists on disk but is not READY. The
     // two fields are read off their own <dt> so the assertion cannot be
     // satisfied by the revision list happening to mention the same text.
-    const served = await screen.findByText('현재 검색 버전', { selector: 'dt' })
+    const served = await screen.findByText('검색에 사용 중인 버전', { selector: 'dt' })
     expect(served.nextElementSibling).toHaveTextContent('Rev 2')
 
-    const newest = screen.getByText('최신 파일 버전', { selector: 'dt' })
+    const newest = screen.getByText('최신 감지 버전', { selector: 'dt' })
     expect(newest.nextElementSibling).toHaveTextContent('Rev 3')
     expect(
       screen.getByText(/최신 파일 버전이 아직 검색에 반영되지 않았습니다/),
@@ -268,5 +268,64 @@ describe('DocumentPage', () => {
     renderAt(<DocumentPage />, PATH, ROUTE)
     await userEvent.click(await screen.findByRole('button', { name: '원본 다운로드' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('로그인이 필요합니다.')
+  })
+})
+
+describe('DocumentPage dates', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: vi.fn(() => 'blob:doc-1'),
+      revokeObjectURL: vi.fn(),
+    }))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  async function renderDetail(overrides = {}) {
+    vi.stubGlobal('fetch', mockFetch({
+      ...NO_CHAT_SESSIONS,
+      '/api/v1/documents/doc-1/revisions': revisionsResponse(),
+      '/api/v1/documents/doc-1': makeDetail(overrides),
+    }))
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await screen.findByRole('heading', { name: makeDetail().title })
+  }
+
+  it('shows three distinct dates, each labelled for what it is', async () => {
+    await renderDetail()
+    for (const label of ['문서 작성일', '시스템 등록일', '원본 파일 수정일']) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+  })
+
+  it('shows the date the document itself states', async () => {
+    await renderDetail()
+    expect(screen.getByText('2025. 11. 26.')).toBeInTheDocument()
+  })
+
+  it('says 알 수 없음 rather than inventing a day', async () => {
+    // A cover stating only "2026년도" gives a year and no date. Rendering
+    // 2026. 1. 1. would be the UI asserting something the document does not.
+    await renderDetail({ document_date: null })
+    expect(screen.getByText('알 수 없음')).toBeInTheDocument()
+    expect(screen.queryByText(/2026\. 1\. 1\./)).not.toBeInTheDocument()
+  })
+
+  it('shows the file mtime as 원본 파일 수정일, not the row bookkeeping timestamp', async () => {
+    // updated_at moves when a revision is promoted -- something no reader did
+    // and none would recognise as the document being modified.
+    await renderDetail({
+      source_modified_at: '2025-12-01T09:30:00Z',
+      updated_at: '2026-08-30T04:12:00Z',
+    })
+    const modified = screen.getByText('원본 파일 수정일').closest('div')!
+    expect(within(modified).getByText('2025. 12. 01.')).toBeInTheDocument()
+    expect(within(modified).queryByText('2026. 08. 30.')).not.toBeInTheDocument()
+  })
+
+  it('falls back when the file has no recorded mtime', async () => {
+    await renderDetail({ source_modified_at: null, document_date: '2025-11-26' })
+    const modified = screen.getByText('원본 파일 수정일').closest('div')!
+    expect(within(modified).getByText('알 수 없음')).toBeInTheDocument()
   })
 })

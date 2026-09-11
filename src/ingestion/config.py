@@ -75,6 +75,39 @@ REQUIRED_EMBEDDING_DIMENSION = 384
 # not for caution's sake.
 DEFAULT_TITLE_BOOST_WEIGHT = 0.075
 
+#: Added to a document's score when the query occurs verbatim in its body AND
+#: that occurrence is rare across the candidate set. Both conditions, or the
+#: boost does not fire at all.
+#:
+#: Why the body needs its own signal: the semantic route scores a document by
+#: the cosine of its best chunk, and e5 places this corpus in a 0.78-0.85 band.
+#: A rare token living only in the body -- "Zookeeper" -- has no route into the
+#: score, so two documents that never mention it outranked one that mentions it
+#: six times.
+#:
+#: 0.10 is comfortably above that observed band (~0.07 wide) so a body match
+#: outranks documents with none, while staying the same order of magnitude as
+#: the title boost. Measured insensitive from 0.02 to 1.00: once the boost
+#: clears the band, more of it changes no ordering.
+DEFAULT_BODY_EXACT_BOOST_WEIGHT = 0.10
+
+#: The most of the candidate set an exact match may cover and still count as
+#: evidence. Above it, the boost is suppressed entirely.
+#:
+#: Strength and discrimination are not the same thing, which is what the
+#: evaluation measured: "파일 다운로드" occurs verbatim in 4 of 7 documents and
+#: "Zookeeper" in 2. Both are exact matches; only one says anything about which
+#: document to read. Boosting on the common phrase demoted the right answers.
+#:
+#: PROVISIONAL. Measured on a seven-document corpus, where 0.5 means "at most
+#: three documents" -- technical terms land on 1-2 and common Korean phrases on
+#: 4+, so the gap is wide and the value sits in the middle of it. That gap is a
+#: property of this corpus, not of the rule. On a shared folder of 500
+#: documents a term in 70 of them scores 0.14 and would boost; whether that is
+#: right has to be measured there rather than assumed here. Re-measure before
+#: treating this number as settled.
+DEFAULT_BODY_EXACT_SELECTIVITY_MAX = 0.50
+
 #: pg_trgm word_similarity floor for the lexical route. Provisional value from
 #: the Korean search PoC. One global setting: never varied per query and never
 #: exposed through the API.
@@ -160,6 +193,8 @@ class IngestionConfig:
     trigram_threshold: float = DEFAULT_TRIGRAM_THRESHOLD
     document_access: str = DEFAULT_DOCUMENT_ACCESS
     title_boost_weight: float = DEFAULT_TITLE_BOOST_WEIGHT
+    body_exact_boost_weight: float = DEFAULT_BODY_EXACT_BOOST_WEIGHT
+    body_exact_selectivity_max: float = DEFAULT_BODY_EXACT_SELECTIVITY_MAX
 
     follow_symlinks: bool = False
     missing_grace_seconds: int = DEFAULT_MISSING_GRACE_SECONDS
@@ -199,6 +234,15 @@ class IngestionConfig:
             raise ConfigurationError("trigram_threshold must be in (0.0, 1.0]")
         if self.title_boost_weight < 0.0:
             raise ConfigurationError("title_boost_weight must be >= 0")
+        if self.body_exact_boost_weight < 0.0:
+            raise ConfigurationError("body_exact_boost_weight must be >= 0")
+        if not 0.0 <= self.body_exact_selectivity_max <= 1.0:
+            # It is a fraction of the candidate set. Outside [0, 1] it either
+            # never fires or always does, and both are better expressed by
+            # setting the weight to 0.
+            raise ConfigurationError(
+                "body_exact_selectivity_max must be between 0 and 1"
+            )
         if self.document_access not in DOCUMENT_ACCESS_MODES:
             # An unrecognised value is refused rather than treated as one of
             # them: guessing here decides who can read the corpus.
@@ -267,6 +311,14 @@ def config_from_env(shared_root: Path | str | None = None) -> IngestionConfig:
         ).strip().lower(),
         title_boost_weight=float(
             os.environ.get("TITLE_BOOST_WEIGHT", DEFAULT_TITLE_BOOST_WEIGHT)
+        ),
+        body_exact_boost_weight=float(
+            os.environ.get("BODY_EXACT_BOOST_WEIGHT", DEFAULT_BODY_EXACT_BOOST_WEIGHT)
+        ),
+        body_exact_selectivity_max=float(
+            os.environ.get(
+                "BODY_EXACT_SELECTIVITY_MAX", DEFAULT_BODY_EXACT_SELECTIVITY_MAX
+            )
         ),
         follow_symlinks=os.environ.get("SCAN_FOLLOW_SYMLINKS", "").lower() in {"1", "true", "yes"},
         missing_grace_seconds=_int_env("MISSING_GRACE_SECONDS", DEFAULT_MISSING_GRACE_SECONDS),

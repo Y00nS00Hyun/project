@@ -213,6 +213,31 @@ class TestSearchParameters:
         pytest.fail("size parameter not declared")
 
 
+class TestDocumentDateContract:
+    """Three dates, and each one says which it is.
+
+    They answer different questions and were previously reduced to two, one of
+    which was mislabelled: `updated_at` is when this system last touched the
+    row and was shown as 수정일.
+    """
+
+    def test_detail_carries_all_three(self, spec):
+        fields = set(response_schemas(spec)["DocumentDetailOut"]["properties"])
+        assert {"created_at", "updated_at", "source_modified_at", "document_date"} <= fields
+
+    def test_the_document_date_is_a_date_not_a_timestamp(self, spec):
+        # A cover states a day. Serialising it as an instant would invent a
+        # time and a timezone, and the invented timezone shifts the day.
+        schema = response_schemas(spec)["DocumentDetailOut"]["properties"]["document_date"]
+        assert "date" in str(schema)
+        assert "date-time" not in str(schema)
+
+    def test_the_document_date_is_nullable(self, spec):
+        # Most documents have none, and that is the correct answer for them.
+        schema = response_schemas(spec)["DocumentDetailOut"]["properties"]["document_date"]
+        assert "null" in str(schema)
+
+
 class TestDocumentSummaryContract:
     def test_detail_carries_the_precomputed_summary(self, spec):
         schemas = response_schemas(spec)
@@ -418,9 +443,24 @@ class TestFolderContract:
             assert banned not in folder
 
     def test_folders_is_not_paginated(self, spec):
-        """A truncated tree is not navigable."""
+        """A truncated tree is not navigable.
+
+        `total_documents` is a corpus size, not a page count: there is still no
+        page, size, offset, cursor or total-pages field to page with.
+        """
         response = spec["components"]["schemas"]["FolderListResponse"]["properties"]
-        assert set(response) == {"items"}
+        assert set(response) == {"items", "total_documents"}
+        assert not {"page", "size", "offset", "cursor", "next", "total_pages"} & set(response)
+
+    def test_the_root_count_is_not_the_sum_of_the_folder_counts(self, spec):
+        """Documented, because summing would be the obvious wrong assumption.
+
+        A document at the top of the shared folder belongs to no folder and
+        appears in no item -- which is the entire corpus in this deployment.
+        """
+        response = spec["components"]["schemas"]["FolderListResponse"]
+        assert "total_documents" in response["properties"]
+        assert response["properties"]["total_documents"]["type"] == "integer"
 
     def test_search_accepts_folder_path(self, spec):
         params = {

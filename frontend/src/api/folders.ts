@@ -20,6 +20,15 @@ export interface FolderNode {
 
 export interface FolderListResponse {
   items: FolderNode[]
+  /**
+   * Every document the caller may browse, in a folder or not.
+   *
+   * Not the sum of the top-level `document_count` values: a document sitting
+   * at the top of the shared folder belongs to no folder and appears in no
+   * item, so summing would under-report -- and a shared folder with no
+   * subdirectories would report zero while holding documents.
+   */
+  total_documents: number
 }
 
 /**

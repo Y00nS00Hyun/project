@@ -80,8 +80,24 @@ export interface DocumentDetail {
   department: DepartmentRef | null
   owner: UserRef | null
   tags: TagRef[]
+  /**
+   * When this system first registered the file -- not the document's own age.
+   * A report written in 2019 and discovered today reads as today.
+   */
   created_at: string
+  /**
+   * When this system last changed the row: a new revision, a promotion, the
+   * file being seen again. NOT when the file's contents changed.
+   */
   updated_at: string
+  /** The current revision's filesystem mtime. What a person means by 수정일. */
+  source_modified_at: string | null
+  /**
+   * The date printed on the document itself, when its front matter states one
+   * outright. Null far more often than not: a cover reading "2026년도 사업"
+   * states a year, not a day.
+   */
+  document_date: string | null
   /** The revision search actually serves. */
   current_revision: RevisionRef | null
   /** The newest revision discovered on disk; may still be processing. */

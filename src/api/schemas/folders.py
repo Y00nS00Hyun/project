@@ -38,3 +38,14 @@ class FolderListResponse(BaseModel):
     """
 
     items: list[FolderOut]
+
+    #: Every document the caller may browse, whether or not it sits in a
+    #: folder. Not the sum of the depth-1 `document_count` values: a document
+    #: at the top of the shared folder belongs to no folder and appears in no
+    #: row, so summing would under-report -- and a shared folder with no
+    #: subdirectories at all would report zero while holding documents.
+    #:
+    #: Lets a client draw a root row for the shared folder itself. The root has
+    #: no path: selecting it means "no folder filter", which is the absence of
+    #: the `folder_path` parameter rather than some value for it.
+    total_documents: int = 0

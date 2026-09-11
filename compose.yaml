@@ -87,6 +87,12 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       SHARED_ROOT: ${SHARED_ROOT:-/data/shared}
 
+      # Body exact-match ranking boost. Defaults match the measured values;
+      # weight 0 restores the previous ranking exactly. The selectivity ceiling
+      # is provisional -- see .env.example.
+      BODY_EXACT_BOOST_WEIGHT: ${BODY_EXACT_BOOST_WEIGHT:-0.10}
+      BODY_EXACT_SELECTIVITY_MAX: ${BODY_EXACT_SELECTIVITY_MAX:-0.50}
+
       # Who may read a document the moment it is ingested. Defaults to "none"
       # -- documents readable by nobody is a mistake that gets noticed; a
       # corpus published by accident is not.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -78,8 +78,21 @@ class DocumentDetailOut(BaseModel):
     department: DepartmentRef | None = None
     owner: UserRef | None = None
     tags: list[TagRef] = []
+    #: When this system first registered the file. Not the file's own age:
+    #: a document written in 2019 and discovered today reads 2026 here.
     created_at: datetime
+    #: When this system last changed anything about the row -- a new revision,
+    #: a promotion, the file being seen again. Not when the file's contents
+    #: changed; `source_modified_at` is that.
     updated_at: datetime
+    #: The filesystem mtime of the current revision's file, as the shared
+    #: folder reports it. What a person means by "수정일".
+    source_modified_at: datetime | None = None
+    #: The date printed on the document itself, when its front matter states
+    #: one outright. NULL far more often than not, and deliberately so -- a
+    #: cover reading "2026년도 사업" states a year, not a day, and 2026-01-01
+    #: would be this system inventing a fact.
+    document_date: date | None = None
     current_revision: RevisionRef | None = None
     latest_revision: RevisionRef | None = None
     is_searchable: bool

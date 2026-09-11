@@ -157,6 +157,8 @@ export function makeDetail(overrides: Partial<DocumentDetail> = {}): DocumentDet
     tags: [{ id: 12, name: '보안' }],
     created_at: '2026-01-05T00:00:00Z',
     updated_at: '2026-08-30T04:12:00Z',
+    source_modified_at: '2025-12-01T09:30:00Z',
+    document_date: '2025-11-26',
     current_revision: { revision_id: 'rev-2', revision_no: 2, created_at: '2026-08-30T04:12:00Z' },
     latest_revision: { revision_id: 'rev-3', revision_no: 3, created_at: '2026-09-01T00:00:00Z' },
     is_searchable: true,

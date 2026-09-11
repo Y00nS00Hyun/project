@@ -141,6 +141,11 @@ class SearchService:
             # vocabulary is unaffected.
             query_text=request.normalized_query,
             title_boost_weight=self.config.title_boost_weight,
+            # Body exact-match boost. Fires only when the query occurs verbatim
+            # in a document AND few enough eligible documents contain it -- see
+            # BODY_EXACT_CTE. Additive, so it reorders and never filters.
+            body_exact_boost_weight=self.config.body_exact_boost_weight,
+            body_exact_selectivity_max=self.config.body_exact_selectivity_max,
             **common,
         )
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from search.folder_tree import folder_tree
+from search.folder_tree import browsable_document_count, folder_tree
 
 from ..dependencies import AuthenticatedUser, connection_factory, require_user
 from ..errors import validation_error
@@ -35,8 +35,10 @@ def list_folders(
             [{"field": name, "reason": "지원하지 않는 parameter입니다."} for name in unknown],
         )
 
-    nodes = folder_tree(connection_factory(), user.user_id)
+    factory = connection_factory()
+    nodes = folder_tree(factory, user.user_id)
     return FolderListResponse(
+        total_documents=browsable_document_count(factory, user.user_id),
         items=[
             FolderOut(
                 path=node.path,

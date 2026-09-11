@@ -95,3 +95,20 @@ export function formatFileSize(bytes: number | null | undefined): string | null 
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
 }
+
+
+/**
+ * A calendar date with no time, as the document itself printed it.
+ *
+ * Parsed as a plain Y/M/D rather than through `new Date(value)`: an ISO date
+ * with no time is read as UTC midnight, which renders as the previous day for
+ * anyone west of Greenwich. The document states a day; showing a different one
+ * would be this code introducing an error the document does not contain.
+ */
+export function formatDateOnly(value: string | null | undefined): string {
+  if (!value) return '알 수 없음'
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return '알 수 없음'
+  const [, year, month, day] = match
+  return `${year}. ${Number(month)}. ${Number(day)}.`
+}

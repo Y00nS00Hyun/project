@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Iterable, Sequence
 
 import psycopg
@@ -403,8 +403,10 @@ class IngestionRepository:
             )
             return cur.fetchone()
 
-    def set_document_year(self, revision_id: str, year: int | None) -> None:
-        """Store the year the revision's content is about.
+    def set_document_year(
+        self, revision_id: str, year: int | None, document_date: "date | None" = None,
+    ) -> None:
+        """Store the year the revision's content is about, and its cover date.
 
         Written twice in a revision's life: once at discovery from the file
         name alone, and again after parsing, when the document's own front
@@ -412,11 +414,21 @@ class IngestionRepository:
         save_parse_result so the failure path -- which has no text and so no
         better evidence -- leaves the discovery-time value alone instead of
         clearing it.
+
+        The date is written in the same statement as the year because they come
+        from one reading of one front matter. Splitting them would allow a
+        revision to briefly claim a date from one parse and a year from
+        another.
+
+        Both are set unconditionally, including to NULL. A re-parse that can no
+        longer find a date must clear the one it found before, or a corrected
+        document would keep asserting a date it no longer carries.
         """
         with self.conn.cursor() as cur:
             cur.execute(
-                "UPDATE document_revisions SET document_year = %s WHERE id = %s",
-                (year, revision_id),
+                "UPDATE document_revisions SET document_year = %s, document_date = %s "
+                "WHERE id = %s",
+                (year, document_date, revision_id),
             )
 
     def save_parse_result(

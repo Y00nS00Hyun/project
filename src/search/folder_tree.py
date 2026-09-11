@@ -67,6 +67,25 @@ ORDER BY depth, path
 """
 
 
+#: The same eligible set the tree is built from, counted instead of expanded.
+#:
+#: The tree cannot supply this number: documents sitting at the top of the
+#: shared folder contribute no folder row at all, so summing the depth-1 counts
+#: would silently omit them -- which is exactly the corpus shape that made the
+#: sidebar look empty in the first place.
+_BROWSABLE_COUNT_SQL = f"""
+SELECT count(*)
+FROM documents d
+JOIN document_revisions r
+    ON r.id = d.current_revision_id
+   AND r.document_id = d.id
+WHERE d.is_deleted = FALSE
+  AND d.current_revision_id IS NOT NULL
+  AND r.is_ready = TRUE
+  AND {READ_ACL_PREDICATE}
+"""
+
+
 @dataclass(frozen=True)
 class FolderNode:
     """One folder the caller may browse.
@@ -112,3 +131,22 @@ def folder_tree(
         )
         for row in rows
     ]
+
+
+def browsable_document_count(
+    connection_factory: Callable[[], psycopg.Connection], user_id: str
+) -> int:
+    """How many documents this user may browse, folders or not.
+
+    Used for the root row of the tree, which stands for the whole shared folder
+    rather than for any one directory.
+    """
+    if not user_id:
+        return 0
+
+    with connection_factory() as conn, conn.cursor() as cur:
+        cur.execute(
+            _BROWSABLE_COUNT_SQL,
+            {"user_id": user_id, "read_permissions": list(READ_PERMISSIONS)},
+        )
+        return cur.fetchone()[0]

@@ -217,10 +217,21 @@ class IngestionService:
                     # named "완료보고서_d251126" whose cover reads "2025. 11. 26."
                     # is a 2025 document; nothing is inferred from "d251126".
                     extraction = extract_year(title, extracted_text)
-                    repo.set_document_year(revision_id, extraction.year)
+                    repo.set_document_year(
+                        revision_id, extraction.year, extraction.date,
+                    )
                     logger.info(
                         "parse.document_year",
-                        extra={"reason": extraction.reason, "year": extraction.year},
+                        extra={
+                            "reason": extraction.reason,
+                            "year": extraction.year,
+                            # None for most documents, and that is the normal
+                            # outcome: only a cover stating a full date
+                            # produces one.
+                            "document_date": (
+                                extraction.date.isoformat() if extraction.date else None
+                            ),
+                        },
                     )
                 # Only TEXT_EXTRACTED is chunked. Everything else has no body
                 # text to chunk, and writing empty chunks would pollute search.

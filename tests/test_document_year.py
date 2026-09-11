@@ -7,6 +7,8 @@ nobody can tell it happened. These tests pin the conservative behaviour.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from ingestion.document_year import (
@@ -243,3 +245,78 @@ class TestBackwardCompatibility:
     def test_schema_range_is_still_enforced(self):
         assert extract_from_front_matter("[문단]\n1800.01.01\n").year is None
         assert MIN_YEAR == 1900 and MAX_YEAR == 2100
+
+
+# ---------------------------------------------------------------------------
+# The full date the document states (migration 0007)
+# ---------------------------------------------------------------------------
+
+class TestDocumentDate:
+    """`document_date` is what the cover prints, or nothing.
+
+    It is decided separately from the year and is never synthesised from one:
+    a document that states 2026 and no day has a year and no date, because
+    2026-01-01 would be a fact the document does not contain.
+    """
+
+    def test_a_cover_date_is_extracted_whole(self):
+        extraction = extract_year("완료보고서", "[문단]\n완료 보고서\n[문단]\n2025. 11. 26.")
+        assert extraction.year == 2025
+        assert extraction.date == date(2025, 11, 26)
+
+    @pytest.mark.parametrize("text", [
+        "[문단]\n2025. 11. 26.",
+        "[문단]\n2025.11.26",
+        "[문단]\n2025-11-26",
+        "[문단]\n2025/11/26",
+        "[문단]\n2025년 11월 26일",
+    ])
+    def test_every_separator_the_year_extractor_accepts(self, text):
+        assert extract_year("보고서", text).date == date(2025, 11, 26)
+
+    def test_the_same_day_written_two_ways_is_one_date(self):
+        # The real completion report's front matter carries "2025. 11. 26." on
+        # the cover and "2025.11.26" in its document-information table.
+        extraction = extract_year(
+            "완료보고서", "[문단]\n2025. 11. 26.\n[표]\n작성일 2025.11.26"
+        )
+        assert extraction.date == date(2025, 11, 26)
+
+    def test_two_different_days_in_one_year_give_a_year_and_no_date(self):
+        extraction = extract_year("보고서", "[문단]\n2025.01.05 착수\n[문단]\n2025.12.20 완료")
+        assert extraction.year == 2025
+        assert extraction.date is None
+
+    def test_a_year_alone_never_becomes_a_date(self):
+        extraction = extract_year("제안요청서", "[문단]\n2026년도 사업\n[문단]\n주관기관")
+        assert extraction.year == 2026
+        assert extraction.date is None
+
+    def test_a_year_in_the_file_name_never_becomes_a_date(self):
+        extraction = extract_year("2026_사업계획서", None)
+        assert extraction.year == 2026
+        assert extraction.date is None
+
+    @pytest.mark.parametrize("text, expected_year", [
+        ("[문단]\n2025.02.30 작성", 2025),   # February has no 30th
+        ("[문단]\n2025.13.01 작성", 2025),   # no 13th month
+    ])
+    def test_an_impossible_date_is_not_a_date(self, text, expected_year):
+        # The calendar decides. Falling back to the bare year is right: the
+        # document does contain "2025", it just does not contain a valid day.
+        extraction = extract_year("보고서", text)
+        assert extraction.date is None
+        assert extraction.year == expected_year
+
+    def test_a_date_is_only_looked_for_in_the_front_matter(self):
+        # Same rule as the year. A date deep in the body is a date the document
+        # mentions, not the date the document was written.
+        body = "[문단]\n표지\n" + "[문단]\n본문\n" * 60 + "[문단]\n2019.03.15 회의록"
+        assert extract_year("보고서", body).date is None
+
+    def test_date_for_document_is_the_same_answer(self):
+        from ingestion.document_year import date_for_document
+
+        text = "[문단]\n2025. 11. 26."
+        assert date_for_document("보고서", text) == date(2025, 11, 26)
+        assert date_for_document("보고서", None) is None

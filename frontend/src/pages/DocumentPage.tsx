@@ -8,7 +8,7 @@ import { RevisionList } from '../components/RevisionList'
 import { Pagination } from '../components/Pagination'
 import { ErrorView, LoadingState } from '../components/StateViews'
 import { useAsyncResource } from '../hooks/useAsyncResource'
-import { fileTypeLabel, formatDate } from '../labels'
+import { fileTypeLabel, formatDate, formatDateOnly } from '../labels'
 
 export function DocumentPage() {
   const { documentId = '' } = useParams()
@@ -116,14 +116,27 @@ function DocumentContent({ documentId }: { documentId: string }) {
           from a served schema is a breaking change for no gain. */}
       <dl className="detail-grid">
         <Field label="파일 형식" value={fileTypeLabel(doc.file_type)} />
-        <Field label="등록일" value={formatDate(doc.created_at)} />
-        <Field label="수정일" value={formatDate(doc.updated_at)} />
+        {/* Three different dates, so each says which one it is.
+
+            작성일  what the document's own cover states, or 알 수 없음
+            등록일  when this system first saw the file
+            수정일  the file's own mtime in the shared folder
+
+            수정일 used to show documents.updated_at, which is when our
+            pipeline last touched the row -- it moved when a revision was
+            promoted, which is not something a reader did or would recognise. */}
+        <Field label="문서 작성일" value={formatDateOnly(doc.document_date)} />
+        <Field label="시스템 등록일" value={formatDate(doc.created_at)} />
         <Field
-          label="현재 검색 버전"
+          label="원본 파일 수정일"
+          value={doc.source_modified_at ? formatDate(doc.source_modified_at) : '알 수 없음'}
+        />
+        <Field
+          label="검색에 사용 중인 버전"
           value={current ? `Rev ${current.revision_no} (${formatDate(current.created_at)})` : '검색 불가'}
         />
         <Field
-          label="최신 파일 버전"
+          label="최신 감지 버전"
           value={latest ? `Rev ${latest.revision_no} (${formatDate(latest.created_at)})` : '-'}
         />
       </dl>

@@ -8,11 +8,18 @@ import {
 
 interface Props {
   folders: FolderNode[]
+  /** Everything the caller may browse, for the root row's count. */
+  totalDocuments?: number
   loading?: boolean
-  /** Canonical path of the selected folder, or null. */
+  /** Canonical path of the selected folder, or null for the whole shared folder. */
   selected: string | null
   onSelect: (path: string | null) => void
 }
+
+//: The root stands for the shared folder itself. Labelled, not named after the
+//: directory on disk: the server's mount path is never sent to a client, and
+//: the last segment of it would be a piece of that path.
+const ROOT_LABEL = '전체 문서'
 
 /**
  * Explorer-style navigation over the shared folder.
@@ -24,9 +31,12 @@ interface Props {
  * never derived from `name`: for a folder created outside UTF-8 the two differ
  * completely, and a path rebuilt from display names matches no document.
  */
-export function FolderTree({ folders, loading, selected, onSelect }: Props) {
+export function FolderTree({
+  folders, totalDocuments, loading, selected, onSelect,
+}: Props) {
   const tree = useMemo(() => buildTree(folders), [folders])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [rootOpen, setRootOpen] = useState(true)
 
   // Open the branch leading to the selection, so a shared link or a reload
   // shows the selected folder rather than a collapsed root.
@@ -51,30 +61,68 @@ export function FolderTree({ folders, loading, selected, onSelect }: Props) {
   if (loading && folders.length === 0) {
     return <p className="folder-empty">폴더를 불러오는 중...</p>
   }
-  if (folders.length === 0) {
-    return <p className="folder-empty">표시할 폴더가 없습니다.</p>
-  }
+
+  // The root is always drawn, including when there are no subfolders at all.
+  // A shared folder whose documents all sit at the top has no folder rows to
+  // show, and an empty panel reads as a failure rather than as a flat corpus.
+  const hasChildren = tree.length > 0
+  const rootSelected = selected === null
 
   return (
-    <>
-      {selected && (
-        <button type="button" className="folder-clear" onClick={() => onSelect(null)}>
-          전체 문서 보기
-        </button>
-      )}
-      <ul className="folder-tree" role="tree" aria-label="공유폴더">
-        {tree.map((node) => (
-          <FolderBranch
-            key={node.path}
-            node={node}
-            expanded={expanded}
-            selected={selected}
-            onToggle={toggle}
-            onSelect={onSelect}
-          />
-        ))}
-      </ul>
-    </>
+    <ul className="folder-tree" role="tree" aria-label="공유폴더">
+      <li role="none">
+        <div
+          role="treeitem"
+          aria-selected={rootSelected}
+          aria-expanded={hasChildren ? rootOpen : undefined}
+          className={rootSelected ? 'folder-row is-selected' : 'folder-row'}
+          style={{ paddingLeft: '4px' }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              className="folder-toggle"
+              aria-label={`${ROOT_LABEL} ${rootOpen ? '접기' : '펼치기'}`}
+              onClick={() => setRootOpen((open) => !open)}
+            >
+              <span aria-hidden="true">{rootOpen ? '▾' : '▸'}</span>
+            </button>
+          ) : (
+            <span className="folder-toggle folder-toggle-empty" aria-hidden="true" />
+          )}
+
+          <button
+            type="button"
+            className="folder-name"
+            aria-label={`${ROOT_LABEL}, 문서 ${totalDocuments ?? 0}건`}
+            // Selecting the root is the absence of a folder filter, not a
+            // filter whose value happens to be the root -- so it clears.
+            onClick={() => onSelect(null)}
+          >
+            <span className="folder-icon" aria-hidden="true">
+              {hasChildren && rootOpen ? '📂' : '📁'}
+            </span>
+            {ROOT_LABEL}
+            <span className="folder-count">{totalDocuments ?? 0}</span>
+          </button>
+        </div>
+
+        {hasChildren && rootOpen && (
+          <ul role="group">
+            {tree.map((node) => (
+              <FolderBranch
+                key={node.path}
+                node={node}
+                expanded={expanded}
+                selected={selected}
+                onToggle={toggle}
+                onSelect={onSelect}
+              />
+            ))}
+          </ul>
+        )}
+      </li>
+    </ul>
   )
 }
 
@@ -98,7 +146,8 @@ function FolderBranch({ node, expanded, selected, onToggle, onSelect }: BranchPr
         aria-selected={isSelected}
         aria-expanded={hasChildren ? isOpen : undefined}
         className={isSelected ? 'folder-row is-selected' : 'folder-row'}
-        style={{ paddingLeft: `${(node.depth - 1) * 14 + 4}px` }}
+        // depth 1 sits one step in from the root row above it.
+        style={{ paddingLeft: `${node.depth * 14 + 4}px` }}
       >
         {hasChildren ? (
           <button

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
 #: Schema CHECK: document_year IS NULL OR BETWEEN 1900 AND 2100.
 MIN_YEAR = 1900
@@ -71,6 +72,16 @@ class YearExtraction:
     reason: str
     #: The exact text the year came from. None when nothing matched.
     evidence: str | None = None
+    #: The full date the front matter states, when it states exactly one.
+    #:
+    #: Decided separately from ``year`` and not derivable from it. A cover
+    #: carrying "2025.01.05" and "2025.12.20" states one year and two dates:
+    #: year is 2025, date is None. The reverse never happens -- a date always
+    #: fixes a year -- so ``date`` being set implies ``year`` is too.
+    #:
+    #: Never synthesised. A bare "2026년도" yields year 2026 and date None,
+    #: because 2026-01-01 is a fact the document does not state.
+    date: date | None = None
 
 
 def _in_range(year: int) -> bool:
@@ -90,20 +101,26 @@ def front_matter(text: str) -> str:
     return text[: min(end, FRONT_MATTER_CHARS)]
 
 
-def _full_dates(text: str) -> list[tuple[int, str]]:
-    """Every valid full date in ``text`` as (year, matched text).
+def _full_dates(text: str) -> list[tuple[date, str]]:
+    """Every valid full date in ``text`` as (date, matched text).
 
-    Month and day are validated so "2025.13.45" is not read as a date. A
-    calendar-exact check (30 vs 31 days) is deliberately not done: the goal is
-    to recognise a date expression, not to audit it.
+    The calendar decides what is valid: ``date(...)`` rejects 2025-02-30 and
+    2025-13-01 on its own, which is stricter than a range check and is the same
+    rule the DATE column will apply. A string that looks like a date but is not
+    one is simply not a date, and treating it as evidence would put a day on a
+    document that never stated it.
     """
-    found: list[tuple[int, str]] = []
+    found: list[tuple[date, str]] = []
     for match in _FULL_DATE.finditer(text):
         year = int(match.group("y1") or match.group("y2"))
         month = int(match.group("m1") or match.group("m2"))
         day = int(match.group("d1") or match.group("d2"))
-        if _in_range(year) and 1 <= month <= 12 and 1 <= day <= 31:
-            found.append((year, " ".join(match.group(0).split())))
+        if not _in_range(year):
+            continue
+        try:
+            found.append((date(year, month, day), " ".join(match.group(0).split())))
+        except ValueError:
+            continue
     return found
 
 
@@ -129,6 +146,18 @@ def _decide(candidates: list[tuple[int, str]], found: str, ambiguous: str) -> Ye
     return YearExtraction(year, found, evidence)
 
 
+def _decide_date(dates: list[tuple[date, str]]) -> date | None:
+    """One distinct date -> take it. Several, or none -> None.
+
+    Distinct *dates*, not distinct years. The same day written twice in two
+    formats -- "2025. 11. 26." on the cover and "2025.11.26" in the document
+    table -- is one date, and that is the common case. Two different days in
+    the same year is one year and no date.
+    """
+    distinct = {value for value, _ in dates}
+    return distinct.pop() if len(distinct) == 1 else None
+
+
 def extract_from_front_matter(text: str) -> YearExtraction:
     """Priorities 1 and 2: the parsed document's own front matter.
 
@@ -140,11 +169,18 @@ def extract_from_front_matter(text: str) -> YearExtraction:
     if not window:
         return YearExtraction(None, "NO_TEXT")
 
+    dates = _full_dates(window)
+    # Carried onto whichever decision follows. Unambiguous dates settle the
+    # year too; ambiguous ones settle neither, and a year found further down
+    # the chain is not evidence of a day.
+    exact_date = _decide_date(dates)
+
     decided = _decide(
-        _full_dates(window), "FULL_DATE_IN_FRONT_MATTER", "AMBIGUOUS_FULL_DATES"
+        [(value.year, evidence) for value, evidence in dates],
+        "FULL_DATE_IN_FRONT_MATTER", "AMBIGUOUS_FULL_DATES",
     )
     if decided is not None:
-        return decided
+        return YearExtraction(decided.year, decided.reason, decided.evidence, exact_date)
 
     decided = _decide(
         _standalone_years(window), "YEAR_IN_FRONT_MATTER", "AMBIGUOUS_YEARS_IN_FRONT_MATTER"
@@ -195,3 +231,13 @@ def year_for_file(title: str) -> int | None:
 
 def year_for_document(title: str, extracted_text: str | None = None) -> int | None:
     return extract_year(title, extracted_text).year
+
+
+def date_for_document(title: str, extracted_text: str | None = None) -> date | None:
+    """The date the document states, or None.
+
+    Only the front matter can produce one. A file name never does: "d251126"
+    is not a date expression, and reading it as one would be exactly the guess
+    the whole extractor refuses to make.
+    """
+    return extract_year(title, extracted_text).date
