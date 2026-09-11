@@ -21,6 +21,8 @@ export interface SearchState {
    * canonical path and the readable name differ completely.
    */
   folderPath: string | null
+  /** Documents in no folder. Mutually exclusive with folderPath. */
+  topLevelOnly: boolean
 }
 
 function parseYear(raw: string | null): number | null {
@@ -47,6 +49,9 @@ export function parseSearchState(params: URLSearchParams): SearchState {
       .filter((id) => Number.isSafeInteger(id) && id > 0),
     fileType: parseFileType(params.get('file_type')),
     folderPath: params.get('folder_path') || null,
+    // folder_path wins if a hand-edited URL carries both: it names something
+    // specific, and the backend refuses the combination anyway.
+    topLevelOnly: !params.get('folder_path') && params.get('top_level_only') === '1',
   }
 }
 
@@ -58,6 +63,7 @@ export function toSearchParams(state: SearchState): URLSearchParams {
   for (const id of state.tagIds) params.append('tag_id', String(id))
   if (state.fileType) params.set('file_type', state.fileType)
   if (state.folderPath) params.set('folder_path', state.folderPath)
+  else if (state.topLevelOnly) params.set('top_level_only', '1')
   if (state.page > 1) params.set('page', String(state.page))
   return params
 }

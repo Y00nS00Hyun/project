@@ -4,7 +4,7 @@ import { fetchTags } from '../api/metadata'
 import { searchDocuments } from '../api/search'
 import { AppNav } from '../components/AppNav'
 import { Filters } from '../components/Filters'
-import { FolderTree } from '../components/FolderTree'
+import { FolderTree, TOP_LEVEL_LABEL } from '../components/FolderTree'
 import { Pagination } from '../components/Pagination'
 import { ResultCard } from '../components/ResultCard'
 import { SearchForm } from '../components/SearchForm'
@@ -43,13 +43,14 @@ export function SearchPage() {
           tagIds: state.tagIds,
           fileType: state.fileType,
           folderPath: state.folderPath,
+          topLevelOnly: state.topLevelOnly,
         },
         { signal },
       ),
     // An empty q is not an idle state: the backend browses by updated_at, so
     // the first visit shows accessible documents instead of a blank page.
     [state.q, state.page, state.year, state.tagIds.join(','), state.fileType,
-     state.folderPath, submission],
+     state.folderPath, state.topLevelOnly, submission],
   )
 
   const onSubmit = useCallback((q: string) => {
@@ -93,11 +94,17 @@ export function SearchPage() {
                 <FolderTree
                   folders={folders.data?.items ?? []}
                   totalDocuments={folders.data?.total_documents ?? 0}
+                  topLevelDocuments={folders.data?.top_level_documents ?? 0}
                   loading={folders.loading}
                   selected={state.folderPath}
+                  topLevelSelected={state.topLevelOnly}
                   // The canonical path is handed straight back; nothing here
-                  // reconstructs it from display names.
-                  onSelect={(path) => update({ folderPath: path })}
+                  // reconstructs it from display names. Selecting a folder
+                  // clears the top-level filter and the reverse, because the
+                  // two describe mutually exclusive sets.
+                  onSelect={(path) => update({ folderPath: path, topLevelOnly: false })}
+                  onSelectTopLevel={() =>
+                    update({ folderPath: null, topLevelOnly: true })}
                 />
               )}
             </>
@@ -114,12 +121,12 @@ export function SearchPage() {
         onChange={update}
       />
 
-      {selectedFolder && (
+      {(selectedFolder || state.topLevelOnly) && (
         <p className="selected-folder">
           <span className="selected-folder-label">폴더</span>
-          {selectedFolder.name}
+          {selectedFolder ? selectedFolder.name : TOP_LEVEL_LABEL}
           <button type="button" className="chip chip-removable"
-                  onClick={() => update({ folderPath: null })}
+                  onClick={() => update({ folderPath: null, topLevelOnly: false })}
                   aria-label="폴더 선택 해제">
             해제 <span aria-hidden="true">×</span>
           </button>

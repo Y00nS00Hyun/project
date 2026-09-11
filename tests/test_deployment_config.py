@@ -348,3 +348,118 @@ class TestLocalAuthDefaults:
             name, value = line.split("=", 1)
             if any(word in name for word in ("PASSWORD", "SECRET", "KEY", "TOKEN")):
                 assert value.strip() == "", f"{name} must ship empty"
+
+
+class TestIngestionTimer:
+    """The systemd units that make ingestion automatic.
+
+    Checked here because the failure modes are silent. A timer that overlaps
+    itself, or that systemd disables after a few failures, keeps existing and
+    stops working -- and nobody notices until a document is missing from
+    search.
+    """
+
+    UNIT_DIR = ROOT / "deploy" / "systemd"
+
+    def unit(self, name: str) -> str:
+        return (self.UNIT_DIR / name).read_text()
+
+    def test_the_schedule_cannot_overlap_itself(self):
+        timer = self.unit("docsearch-ingest.timer")
+        # OnUnitActiveSec counts from when a pass *started*, so a pass slower
+        # than the interval would have its successor scheduled while it is
+        # still running. OnUnitInactiveSec counts from when it finished.
+        assert "OnUnitInactiveSec=" in timer
+        assert "OnUnitActiveSec=" not in timer
+
+    def test_the_default_interval_is_one_minute(self):
+        assert "OnUnitInactiveSec=60s" in self.unit("docsearch-ingest.timer")
+
+    def test_it_survives_a_reboot(self):
+        timer = self.unit("docsearch-ingest.timer")
+        assert "WantedBy=timers.target" in timer
+        assert "install.sh" in (self.UNIT_DIR / "install.sh").name
+        assert "enable --now docsearch-ingest.timer" in self.unit("install.sh")
+
+    @staticmethod
+    def sections(text: str) -> dict[str, list[str]]:
+        """Split a unit file into its sections.
+
+        Directives are section-scoped, and systemd ignores one written under
+        the wrong heading -- logging "Unknown key name" and carrying on without
+        it. A test that only greps for the line passes while the setting does
+        nothing, which is how StartLimitIntervalSec sat in [Service] and was
+        silently dropped by systemd 249.
+        """
+        found: dict[str, list[str]] = {}
+        current = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                current = stripped[1:-1]
+                found.setdefault(current, [])
+            elif stripped and not stripped.startswith("#"):
+                found.setdefault(current, []).append(stripped)
+        return found
+
+    def test_repeated_failures_cannot_disable_the_unit(self):
+        # systemd's default rate limiter refuses to start a unit that failed
+        # several times in quick succession -- exactly when the next attempt
+        # matters most.
+        sections = self.sections(self.unit("docsearch-ingest.service"))
+        assert "StartLimitIntervalSec=0" in sections["Unit"]
+        assert not any(d.startswith("StartLimitIntervalSec") for d in sections["Service"])
+
+    def test_every_directive_sits_in_a_section_systemd_reads_it_from(self):
+        """Guards the whole file against the same mistake.
+
+        Not exhaustive about systemd's grammar -- it checks the directives this
+        deployment actually relies on, each against the section systemd looks
+        for it in.
+        """
+        service = self.sections(self.unit("docsearch-ingest.service"))
+        timer = self.sections(self.unit("docsearch-ingest.timer"))
+
+        for directive in ("Type=", "User=", "ExecStart=", "TimeoutStartSec=",
+                          "StandardOutput=", "SyslogIdentifier="):
+            assert any(d.startswith(directive) for d in service["Service"]), directive
+        for directive in ("After=", "Wants=", "StartLimitIntervalSec="):
+            assert any(d.startswith(directive) for d in service["Unit"]), directive
+
+        for directive in ("Unit=", "OnBootSec=", "OnUnitInactiveSec=", "Persistent="):
+            assert any(d.startswith(directive) for d in timer["Timer"]), directive
+        assert "WantedBy=timers.target" in timer["Install"]
+
+    def test_a_wedged_pass_cannot_hold_the_lock_forever(self):
+        assert "TimeoutStartSec=" in self.unit("docsearch-ingest.service")
+
+    def test_a_second_run_is_locked_out_rather_than_queued(self):
+        script = self.unit("docsearch-ingest.sh")
+        assert "flock --nonblock" in script
+        # Exit 0, not a failure: a skipped tick is the lock working, and
+        # marking the unit failed for it would train an operator to ignore the
+        # unit's state.
+        assert "exit 0" in script
+
+    def test_the_service_is_only_ever_started_by_the_timer(self):
+        # No [Install] section means `systemctl enable` on the service itself
+        # is refused, so it cannot be accidentally set to run at boot on its
+        # own schedule.
+        assert "[Install]" not in self.unit("docsearch-ingest.service")
+
+    def test_it_reuses_the_running_container(self):
+        script = self.unit("docsearch-ingest.sh")
+        # `compose run` would start a second container and reload the embedding
+        # model on every tick.
+        assert "compose exec -T backend" in script
+        assert "compose run" not in script
+
+    def test_the_log_goes_to_the_journal(self):
+        service = self.unit("docsearch-ingest.service")
+        assert "StandardOutput=journal" in service
+        assert "SyslogIdentifier=" in service
+
+    def test_it_does_not_run_as_root(self):
+        service = self.unit("docsearch-ingest.service")
+        assert "User=" in service
+        assert "User=root" not in service

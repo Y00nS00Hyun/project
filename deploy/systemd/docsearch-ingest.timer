@@ -1,0 +1,39 @@
+[Unit]
+Description=docsearch: ingest the shared folder every minute
+Documentation=file:///home/sh-test/project/docs/deployment.md
+
+[Timer]
+Unit=docsearch-ingest.service
+
+# First pass shortly after boot, once Docker has had a moment to bring the
+# stack up. The pass is harmless if it is early -- it fails, and the next tick
+# succeeds.
+OnBootSec=2min
+
+# ---------------------------------------------------------------------------
+# THE SCHEDULE. This is the one line to change.
+#
+#   sudo systemctl edit docsearch-ingest.timer     (creates a drop-in)
+#   sudo systemctl restart docsearch-ingest.timer
+#
+# OnUnitInactiveSec, not OnUnitActiveSec: it counts from when the previous pass
+# *finished*, so there is always a gap between passes and two can never overlap
+# by construction. OnUnitActiveSec counts from when the pass started, which on
+# a slow import would schedule the next one while the first is still running.
+#
+# The practical meaning is "at most a minute of quiet between passes", so a
+# file saved to the shared folder is picked up within roughly a minute plus
+# however long that pass takes.
+# ---------------------------------------------------------------------------
+OnUnitInactiveSec=60s
+
+# Absorbs the scheduling jitter of many timers firing at once. Irrelevant here
+# with one timer, and harmless.
+AccuracySec=5s
+
+# If the machine was off when a tick was due, run once at boot rather than
+# pretending the missed ticks happened.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

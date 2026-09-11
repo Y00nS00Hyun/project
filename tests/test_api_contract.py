@@ -51,7 +51,14 @@ AUTH_ROUTES = {
     ("POST", f"{API_PREFIX}/admin/users/{{user_id}}/admin"),
 }
 
-ALL_ROUTES = EXPECTED_ROUTES | AUTH_ROUTES
+#: Read-only additions after v1.3. The extracted-text preview is its own
+#: route rather than a field on the detail response so a long document is
+#: paged instead of shipped whole.
+PREVIEW_ROUTES = {
+    ("GET", f"{API_PREFIX}/documents/{{document_id}}/text"),
+}
+
+ALL_ROUTES = EXPECTED_ROUTES | AUTH_ROUTES | PREVIEW_ROUTES
 
 #: Never acceptable anywhere in a response schema.
 FORBIDDEN_FIELDS = {
@@ -200,9 +207,11 @@ class TestSearchParameters:
             p["name"] for p in spec["paths"][f"{API_PREFIX}/search"]["get"]["parameters"]
             if p["in"] == "query"
         }
-        # v1's eight, plus folder_path from the v1.1 additive revision.
+        # v1's eight, plus folder_path from the v1.1 additive revision, plus
+        # top_level_only -- the complement of folder_path, which no value of
+        # folder_path can express because every path starts at the root.
         assert params == {"q", "mode", "page", "size", "department_id", "year",
-                          "tag_id", "file_type", "folder_path"}
+                          "tag_id", "file_type", "folder_path", "top_level_only"}
 
     def test_size_bounds_are_declared(self, spec):
         for p in spec["paths"][f"{API_PREFIX}/search"]["get"]["parameters"]:
@@ -224,6 +233,12 @@ class TestDocumentDateContract:
     def test_detail_carries_all_three(self, spec):
         fields = set(response_schemas(spec)["DocumentDetailOut"]["properties"])
         assert {"created_at", "updated_at", "source_modified_at", "document_date"} <= fields
+
+    def test_detail_reports_what_a_download_would_fetch(self, spec):
+        # The current revision's size, like every other figure in the detail
+        # response -- not the newest file on disk.
+        fields = set(response_schemas(spec)["DocumentDetailOut"]["properties"])
+        assert "file_size" in fields
 
     def test_the_document_date_is_a_date_not_a_timestamp(self, spec):
         # A cover states a day. Serialising it as an instant would invent a
@@ -425,8 +440,9 @@ class TestFolderContract:
             for method in methods
         }
         assert v1_routes <= actual
-        # 11 through v1.2, plus the eleven v1.3 authentication routes.
-        assert len(actual) == len(ALL_ROUTES) == 22
+        # 11 through v1.2, the eleven v1.3 authentication routes, and the
+        # extracted-text preview.
+        assert len(actual) == len(ALL_ROUTES) == 23
 
     def test_a_folder_carries_a_canonical_path_and_a_display_name(self, spec):
         """Separate fields, because for a legacy folder they differ entirely.
@@ -449,7 +465,7 @@ class TestFolderContract:
         page, size, offset, cursor or total-pages field to page with.
         """
         response = spec["components"]["schemas"]["FolderListResponse"]["properties"]
-        assert set(response) == {"items", "total_documents"}
+        assert set(response) == {"items", "total_documents", "top_level_documents"}
         assert not {"page", "size", "offset", "cursor", "next", "total_pages"} & set(response)
 
     def test_the_root_count_is_not_the_sum_of_the_folder_counts(self, spec):
@@ -461,6 +477,26 @@ class TestFolderContract:
         response = spec["components"]["schemas"]["FolderListResponse"]
         assert "total_documents" in response["properties"]
         assert response["properties"]["total_documents"]["type"] == "integer"
+
+    def test_the_counts_partition_the_corpus(self, spec):
+        """Folders plus top-level documents account for everything.
+
+        A document at the top of the shared folder contributes no folder row,
+        so a client that summed `items` alone would under-report -- which in a
+        flat shared folder is nearly the whole corpus.
+        """
+        response = spec["components"]["schemas"]["FolderListResponse"]["properties"]
+        assert response["total_documents"]["type"] == "integer"
+        assert response["top_level_documents"]["type"] == "integer"
+
+    def test_search_selects_top_level_documents_with_its_own_flag(self, spec):
+        params = {
+            p["name"] for p in spec["paths"][f"{API_PREFIX}/search"]["get"]["parameters"]
+        }
+        # Not a reserved folder_path value: every path starts at the root, so no
+        # prefix picks out exactly the documents not under one -- and a reserved
+        # string could one day collide with a real folder name.
+        assert "top_level_only" in params
 
     def test_search_accepts_folder_path(self, spec):
         params = {

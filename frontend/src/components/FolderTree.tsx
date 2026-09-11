@@ -10,16 +10,34 @@ interface Props {
   folders: FolderNode[]
   /** Everything the caller may browse, for the root row's count. */
   totalDocuments?: number
+  /** Documents in no folder, for the 기타 row. */
+  topLevelDocuments?: number
   loading?: boolean
   /** Canonical path of the selected folder, or null for the whole shared folder. */
   selected: string | null
+  /** Whether the 기타 row is the current selection. */
+  topLevelSelected?: boolean
   onSelect: (path: string | null) => void
+  onSelectTopLevel?: () => void
 }
 
 //: The root stands for the shared folder itself. Labelled, not named after the
 //: directory on disk: the server's mount path is never sent to a client, and
 //: the last segment of it would be a piece of that path.
 const ROOT_LABEL = '전체 문서'
+
+/**
+ * Documents sitting at the top of the shared folder, in no folder at all.
+ *
+ * Shown as a sibling of the real folders so the tree accounts for everything:
+ * without it the folders add up to less than the total and the difference has
+ * no row to belong to.
+ *
+ * It is not a folder and has no path -- selecting it sends `top_level_only`
+ * rather than a `folder_path`, because every path starts at the root and no
+ * prefix picks out exactly the documents that are not under one.
+ */
+export const TOP_LEVEL_LABEL = '기타'
 
 /**
  * Explorer-style navigation over the shared folder.
@@ -32,7 +50,8 @@ const ROOT_LABEL = '전체 문서'
  * completely, and a path rebuilt from display names matches no document.
  */
 export function FolderTree({
-  folders, totalDocuments, loading, selected, onSelect,
+  folders, totalDocuments, topLevelDocuments = 0, loading, selected,
+  topLevelSelected = false, onSelect, onSelectTopLevel,
 }: Props) {
   const tree = useMemo(() => buildTree(folders), [folders])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -42,6 +61,14 @@ export function FolderTree({
   // shows the selected folder rather than a collapsed root.
   useEffect(() => {
     if (!selected) return
+    // The root too: every folder hangs off it, so a selection made while the
+    // root is collapsed would otherwise be invisible -- the sidebar would show
+    // one collapsed row and the results would be filtered by something the
+    // user cannot see.
+    //
+    // Only when the selection changes. Collapsing the root does not change
+    // `selected`, so this never fights a deliberate collapse.
+    setRootOpen(true)
     setExpanded((current) => {
       const next = new Set(current)
       for (const path of ancestorPaths(folders, selected)) next.add(path)
@@ -65,8 +92,12 @@ export function FolderTree({
   // The root is always drawn, including when there are no subfolders at all.
   // A shared folder whose documents all sit at the top has no folder rows to
   // show, and an empty panel reads as a failure rather than as a flat corpus.
+  // Only worth a row when there are real folders to be outside of. With no
+  // folders at all every document is at the top, and 기타 would say the same
+  // thing as 전체 문서 twice.
+  const showTopLevel = tree.length > 0 && topLevelDocuments > 0
   const hasChildren = tree.length > 0
-  const rootSelected = selected === null
+  const rootSelected = selected === null && !topLevelSelected
 
   return (
     <ul className="folder-tree" role="tree" aria-label="공유폴더">
@@ -119,6 +150,33 @@ export function FolderTree({
                 onSelect={onSelect}
               />
             ))}
+            {showTopLevel && (
+              <li role="none">
+                <div
+                  role="treeitem"
+                  aria-selected={topLevelSelected}
+                  className={topLevelSelected ? 'folder-row is-selected' : 'folder-row'}
+                  style={{ paddingLeft: '18px' }}
+                >
+                  {/* No chevron: it has no subtree. The blank keeps its label
+                      aligned with the folders above it. */}
+                  <span className="folder-toggle folder-toggle-empty" aria-hidden="true" />
+                  <button
+                    type="button"
+                    className="folder-name"
+                    aria-label={`${TOP_LEVEL_LABEL}, 문서 ${topLevelDocuments}건`}
+                    // Clicking it again clears, like a folder row -- a
+                    // selection stays reversible without a separate control.
+                    onClick={() =>
+                      (topLevelSelected ? onSelect(null) : onSelectTopLevel?.())}
+                  >
+                    <span className="folder-icon" aria-hidden="true">📁</span>
+                    {TOP_LEVEL_LABEL}
+                    <span className="folder-count">{topLevelDocuments}</span>
+                  </button>
+                </div>
+              </li>
+            )}
           </ul>
         )}
       </li>

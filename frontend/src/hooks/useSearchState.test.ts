@@ -16,6 +16,7 @@ describe('parseSearchState', () => {
       tagIds: [12, 13],
       fileType: 'hwpx',
       folderPath: null,
+      topLevelOnly: false,
     })
   })
 
@@ -27,6 +28,7 @@ describe('parseSearchState', () => {
       tagIds: [],
       fileType: null,
       folderPath: null,
+      topLevelOnly: false,
     })
   })
 
@@ -56,6 +58,7 @@ describe('toSearchParams', () => {
       tagIds: [12, 13],
       fileType: 'hwpx' as const,
       folderPath: null,
+      topLevelOnly: false,
     }
     expect(parseSearchState(toSearchParams(state))).toEqual(state)
   })
@@ -68,6 +71,7 @@ describe('toSearchParams', () => {
       tagIds: [],
       fileType: null,
       folderPath: null,
+      topLevelOnly: false,
     })
     expect(params.toString()).toBe('')
   })
@@ -82,6 +86,7 @@ describe('toSearchParams', () => {
       tagIds: [12],
       fileType: 'hwpx',
       folderPath: null,
+      topLevelOnly: false,
     })
     expect(params.has('department_id')).toBe(false)
   })
@@ -94,7 +99,49 @@ describe('toSearchParams', () => {
       tagIds: [12, 13],
       fileType: null,
       folderPath: null,
+      topLevelOnly: false,
     })
     expect(params.getAll('tag_id')).toEqual(['12', '13'])
+  })
+})
+
+describe('top-level-only is exclusive with folderPath', () => {
+  it('round-trips through the URL', () => {
+    const state = {
+      q: '', page: 1, year: null, tagIds: [], fileType: null,
+      folderPath: null, topLevelOnly: true,
+    }
+    expect(toSearchParams(state).get('top_level_only')).toBe('1')
+    expect(parseSearchState(toSearchParams(state))).toEqual(state)
+  })
+
+  it('is absent from the URL when off', () => {
+    const params = toSearchParams({
+      q: '', page: 1, year: null, tagIds: [], fileType: null,
+      folderPath: null, topLevelOnly: false,
+    })
+    // The backend's default is false; sending it would put a meaningless
+    // parameter in every shared link.
+    expect(params.has('top_level_only')).toBe(false)
+  })
+
+  it('a folder path wins over a hand-edited top_level_only', () => {
+    // "inside this folder" and "inside no folder" cannot both hold, and the
+    // backend refuses the combination. Preferring the specific one keeps a
+    // pasted URL working instead of 422-ing.
+    const state = parseSearchState(
+      new URLSearchParams('folder_path=HELLO&top_level_only=1'),
+    )
+    expect(state.folderPath).toBe('HELLO')
+    expect(state.topLevelOnly).toBe(false)
+  })
+
+  it('serialising never emits both', () => {
+    const params = toSearchParams({
+      q: '', page: 1, year: null, tagIds: [], fileType: null,
+      folderPath: 'HELLO', topLevelOnly: true,
+    })
+    expect(params.get('folder_path')).toBe('HELLO')
+    expect(params.has('top_level_only')).toBe(false)
   })
 })

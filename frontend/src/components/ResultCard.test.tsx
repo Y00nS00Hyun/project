@@ -56,9 +56,13 @@ describe('ResultCard', () => {
     expect(container.querySelector('.result-snippet')).toBeNull()
   })
 
-  it('flags a newer revision that has not been indexed yet', () => {
+  it('says a newer revision is being indexed, not that it was skipped', () => {
+    // Ingestion is on a timer, so this state resolves by itself. Wording it as
+    // a failure sends somebody to look for a problem that is already being
+    // fixed.
     renderCard(makeItem({ has_newer_revision: true }))
-    expect(screen.getByText('새 버전 미반영')).toBeInTheDocument()
+    expect(screen.getByText('새 버전 반영 중')).toBeInTheDocument()
+    expect(screen.queryByText(/미반영/)).not.toBeInTheDocument()
   })
 
   it('renders no relevance number anywhere', () => {

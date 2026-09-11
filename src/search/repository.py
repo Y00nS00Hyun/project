@@ -117,6 +117,12 @@ eligible AS (
           %(folder_prefix)s::text IS NULL
           OR d.source_path LIKE %(folder_prefix)s::text || '%%' ESCAPE '\\'
       )
+      -- Documents sitting at the top of the shared folder, in no folder at
+      -- all. They cannot be selected by prefix -- every path starts with the
+      -- root -- so this is its own condition rather than a special folder_prefix
+      -- value. A canonical source_path uses '/' as its only separator, so
+      -- "contains no slash" is exactly "is not inside a folder".
+      AND (NOT %(top_level_only)s OR position('/' in d.source_path) = 0)
       AND (
           %(tag_count)s = 0
           OR (
@@ -320,6 +326,7 @@ def _base_params(
     file_type: str | None = None,
     folder_prefix: str | None = None,
     scope_document_id: str | None = None,
+    top_level_only: bool = False,
 ) -> dict[str, Any]:
     return {
         "user_id": user_id,
@@ -333,6 +340,9 @@ def _base_params(
         # Already LIKE-escaped and separator-terminated by the caller; the
         # query only appends the wildcard.
         "folder_prefix": folder_prefix,
+        # Mutually exclusive with folder_prefix -- a request is either inside a
+        # folder or outside every folder, and SearchRequest refuses both at once.
+        "top_level_only": top_level_only,
         "tag_ids": list(tag_ids),
         "tag_count": len(set(tag_ids)),
     }
@@ -356,6 +366,7 @@ class SearchRepository:
         file_type: str | None,
         folder_prefix: str | None = None,
         scope_document_id: str | None = None,
+        top_level_only: bool = False,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -383,7 +394,7 @@ class SearchRepository:
         """
         params = _base_params(
             user_id, department_id, year, tag_ids, file_type, folder_prefix,
-            scope_document_id,
+            scope_document_id, top_level_only,
         )
         params.update({"limit": limit, "offset": offset})
         return self._fetch(sql, params)
@@ -405,6 +416,7 @@ class SearchRepository:
         file_type: str | None,
         folder_prefix: str | None = None,
         scope_document_id: str | None = None,
+        top_level_only: bool = False,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -474,7 +486,7 @@ class SearchRepository:
         """
         params = _base_params(
             user_id, department_id, year, tag_ids, file_type, folder_prefix,
-            scope_document_id,
+            scope_document_id, top_level_only,
         )
         params.update({
             "query_vector": query_vector,
@@ -504,6 +516,7 @@ class SearchRepository:
         file_type: str | None,
         folder_prefix: str | None = None,
         scope_document_id: str | None = None,
+        top_level_only: bool = False,
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -565,7 +578,7 @@ class SearchRepository:
         """
         params = _base_params(
             user_id, department_id, year, tag_ids, file_type, folder_prefix,
-            scope_document_id,
+            scope_document_id, top_level_only,
         )
         params.update({"query_text": query_text, "limit": limit, "offset": offset})
         return self._fetch(sql, params)

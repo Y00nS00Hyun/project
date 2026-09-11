@@ -49,3 +49,16 @@ class FolderListResponse(BaseModel):
     #: no path: selecting it means "no folder filter", which is the absence of
     #: the `folder_path` parameter rather than some value for it.
     total_documents: int = 0
+
+    #: Documents belonging to no folder at all -- the ones sitting at the top of
+    #: the shared folder.
+    #:
+    #: They appear in no `items` entry, because a document at the top
+    #: contributes no folder row. Without this number a client can show the
+    #: folders and the total but cannot account for the difference, which is
+    #: most of the corpus in a flat shared folder.
+    #:
+    #: Select them with `top_level_only=true` on GET /search. Not a
+    #: `folder_path`: every path starts at the root, so no prefix picks out
+    #: exactly the documents that are not under one.
+    top_level_documents: int = 0

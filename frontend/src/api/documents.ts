@@ -1,5 +1,9 @@
 import { getFile, getJson, type DownloadedFile, type RequestOptions } from './client'
-import type { DocumentDetail, RevisionListResponse } from './types'
+import type {
+  DocumentDetail,
+  RevisionListResponse,
+  TextPreviewResponse,
+} from './types'
 
 export function fetchDocument(
   documentId: string,
@@ -41,5 +45,28 @@ export function downloadDocument(
     `/documents/${encodeURIComponent(documentId)}/download`,
     fallbackName,
     options,
+  )
+}
+
+/**
+ * The text the parser extracted from the document's current READY revision.
+ *
+ * Its own request rather than a field on the detail response: a long report is
+ * hundreds of thousands of characters, and most people opening a document page
+ * never ask to read it there.
+ *
+ * Paged by block -- a block is a chunk, the same unit search matches and
+ * citations point at, so what is shown here and what an answer quotes describe
+ * the same place.
+ */
+export function fetchDocumentText(
+  documentId: string,
+  offset = 0,
+  limit = 20,
+  options: RequestOptions = {},
+): Promise<TextPreviewResponse> {
+  return getJson<TextPreviewResponse>(
+    `/documents/${encodeURIComponent(documentId)}/text`,
+    { ...options, params: { offset, limit } },
   )
 }

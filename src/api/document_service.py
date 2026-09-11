@@ -17,6 +17,7 @@ from psycopg.rows import dict_row
 from ingestion.exceptions import PathOutsideRootError
 from ingestion.file_scanner import resolve_source_path
 from ingestion.path_encoding import display_name
+from rag.models import source_anchor
 from search.repository import READ_PERMISSIONS, READ_ACL_PREDICATE as _ACL_PREDICATE
 
 @dataclass(frozen=True)
@@ -89,6 +90,7 @@ class DocumentService:
             "tags": self._tags(document_id),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            "file_size": row["file_size"],
             "source_modified_at": row["source_modified_at"],
             "document_date": row["document_date"],
             "current_revision": current,
@@ -102,6 +104,81 @@ class DocumentService:
             "summary": self._summary(row["current_revision_id"]),
             "chat": {"available": _document_generation_enabled()},
         }
+
+    def text_preview(
+        self, user_id: str, document_id: str, offset: int, limit: int
+    ) -> dict[str, Any]:
+        """A readable slice of the text the parser extracted, in document order.
+
+        Built from `chunks` rather than `document_revisions.extracted_text`
+        because the chunks already carry the paragraph range each piece came
+        from. Slicing the text column by character would produce an offset that
+        means nothing to a reader and matches no citation.
+
+        ACL is checked on the logical document first, through the same helper
+        every other read uses: this returns document body text, which is the
+        thing the permission system exists to control.
+
+        Only the current READY revision. An older revision's text would be
+        content the reader cannot reach from search, and a not-yet-ready one is
+        text that search does not serve.
+        """
+        row = self._visible_document(user_id, document_id)
+        revision_id = row["current_revision_id"]
+        if revision_id is None:
+            return {"revision_id": None, "items": [], "offset": offset,
+                    "total": 0, "has_more": False}
+
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT c.chunk_index, c.text, c.paragraph_start, c.paragraph_end,
+                       c.page_number, c.section_title,
+                       count(*) OVER () AS total_count
+                FROM chunks c
+                JOIN document_revisions r ON r.id = c.document_revision_id
+                WHERE c.document_revision_id = %s
+                  AND r.is_ready = TRUE
+                ORDER BY c.chunk_index
+                LIMIT %s OFFSET %s
+                """,
+                (revision_id, limit, offset),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+        total = rows[0]["total_count"] if rows else self._ready_chunk_count(revision_id)
+        return {
+            "revision_id": str(revision_id),
+            "items": [
+                {
+                    "chunk_index": r["chunk_index"],
+                    "text": r["text"],
+                    "section_title": r["section_title"],
+                    # The anchor the rest of the system uses, unchanged -- so a
+                    # preview and a citation describe the same place the same way.
+                    "anchor": source_anchor(
+                        row["file_type"], r["paragraph_start"], r["paragraph_end"],
+                        r["page_number"],
+                    ),
+                }
+                for r in rows
+            ],
+            "offset": offset,
+            "total": total,
+            "has_more": offset + len(rows) < total,
+        }
+
+    def _ready_chunk_count(self, revision_id: str) -> int:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FROM chunks c
+                JOIN document_revisions r ON r.id = c.document_revision_id
+                WHERE c.document_revision_id = %s AND r.is_ready = TRUE
+                """,
+                (revision_id,),
+            )
+            return cur.fetchone()[0]
 
     def list_revisions(
         self, user_id: str, document_id: str, limit: int, offset: int
@@ -203,6 +280,7 @@ class DocumentService:
                            -- being served, and a promoted revision brings its
                            -- own mtime and its own cover date with it.
                            r.source_mtime AS source_modified_at,
+                           r.file_size,
                            r.document_date
                     FROM documents d
                     LEFT JOIN document_revisions r

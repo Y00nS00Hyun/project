@@ -248,6 +248,40 @@ class IngestionRepository:
             rows = cur.fetchall()
         return str(rows[0][0]) if len(rows) == 1 else None
 
+    def relocate_document(
+        self, document_id: str, *, source_path: str, title: str, original_filename: str,
+    ) -> None:
+        """Point an existing document at a file that moved or was renamed.
+
+        Only the three columns that describe *where the file is now*. The
+        document keeps its id, its revisions, both revision pointers, its
+        permissions, and everything that references it -- chat citations,
+        favourites, recent views. Renaming a file is not a change to the
+        document; it is a change to its name.
+
+        Deliberately does NOT touch document_revisions.source_path_at_ingest.
+        That column records where a revision was read from when it was
+        ingested, which is history and stays true no matter where the file
+        moves afterwards.
+
+        No new revision either: the bytes are identical, which is how the
+        caller identified the move in the first place.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE documents
+                SET source_path = %s,
+                    title = %s,
+                    original_filename = %s,
+                    last_seen_at = now(),
+                    missing_since = NULL,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (source_path, title, original_filename, document_id),
+            )
+
     def touch_document(self, document_id: str) -> None:
         """Record that the file was seen, clearing any missing/deleted state.
 
@@ -303,6 +337,27 @@ class IngestionRepository:
         """Map source_path -> document_id for every non-deleted document."""
         with self.conn.cursor() as cur:
             cur.execute("SELECT source_path, id FROM documents WHERE is_deleted = FALSE")
+            return {row[0]: str(row[1]) for row in cur.fetchall()}
+
+    def present_document_paths(self) -> dict[str, str]:
+        """Like `active_document_paths`, restricted to documents whose file was
+        there at the end of the previous scan.
+
+        `missing_since IS NULL` is that state: `mark_missing` stamps it on the
+        first scan that fails to find the file and `COALESCE` keeps the
+        original timestamp on every scan after, so a NULL means "present last
+        time we looked" and a value means "already gone before this scan
+        started".
+
+        Only meaningful while called *before* this scan's own missing pass --
+        after it, this scan's disappearances are stamped too and the
+        distinction is lost.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT source_path, id FROM documents "
+                "WHERE is_deleted = FALSE AND missing_since IS NULL"
+            )
             return {row[0]: str(row[1]) for row in cur.fetchall()}
 
     # -- revisions ---------------------------------------------------------

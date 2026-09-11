@@ -12,6 +12,7 @@ const EMPTY: SearchState = {
   tagIds: [],
   fileType: null,
   folderPath: null,
+  topLevelOnly: false,
 }
 
 const KIND_TAGS = [

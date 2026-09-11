@@ -134,6 +134,98 @@ docker compose exec backend python -m ingestion run --limit 500
 
 ---
 
+## 4.1 자동 수집 (systemd timer)
+
+수집은 기본적으로 수동이다. 공유폴더에 파일을 넣어도 `ingestion run` 을 돌리기
+전까지는 아무 일도 일어나지 않는다 -- 파일 감시자도 스케줄러도 없다.
+
+주기 실행은 systemd timer 로 붙인다. 별도 scanner 컨테이너나 scheduler
+framework 를 두지 않는 이유는, 단일 VM 에서 1분마다 명령 하나를 돌리는 일에
+이미 OS 가 갖고 있는 것보다 더 필요한 게 없기 때문이다.
+
+```bash
+sudo ./deploy/systemd/install.sh
+```
+
+설치되는 것:
+
+```text
+/etc/systemd/system/docsearch-ingest.service   한 번의 수집 패스
+/etc/systemd/system/docsearch-ingest.timer     60초마다
+/etc/docsearch/ingest.env                      패스당 job 수 등
+```
+
+`enable --now` 로 등록되므로 **재부팅 후에도 자동으로 다시 뜬다.**
+
+### 주기 변경 — 한 곳
+
+```bash
+sudo systemctl edit docsearch-ingest.timer
+```
+
+```ini
+[Timer]
+OnUnitInactiveSec=5min
+```
+
+```bash
+sudo systemctl restart docsearch-ingest.timer
+```
+
+`OnUnitActiveSec` 이 아니라 `OnUnitInactiveSec` 인 것이 핵심이다. 전자는 패스가
+*시작된* 시각부터 세므로 느린 수집 중에 다음 패스가 예약되지만, 후자는 *끝난*
+시각부터 세기 때문에 두 패스가 겹치는 일이 구조적으로 생기지 않는다.
+
+### 중복 실행 방지
+
+두 겹이다.
+
+```text
+systemd   OnUnitInactiveSec 이므로 timer 가 겹쳐 띄우지 않는다
+flock     손으로 돌린 것과 timer 가 겹치는 경우까지 막는다
+```
+
+두 번째 것이 필요한 이유는 운영 중 손으로 `ingestion run` 을 돌리는 일이 실제로
+있기 때문이다. 락을 못 잡으면 **exit 0 으로 조용히 건너뛴다** -- 정상 동작이므로
+unit 을 failed 로 만들지 않는다.
+
+덧붙여 수집 자체가 이미 동시 실행에 안전하다. `sync` 는 content hash 가 같은
+파일을 건너뛰고, `uq_jobs_active` 가 같은 revision 에 두 번째 job 을 거부하며,
+두 claim 쿼리 모두 `FOR UPDATE SKIP LOCKED` 를 쓴다. 락은 동시 실행을 *안전하게*
+만드는 장치가 아니라 *일어나지 않게* 하는 장치다.
+
+### 로그
+
+```bash
+journalctl -u docsearch-ingest.service -f          # 실시간
+journalctl -u docsearch-ingest.service --since -1h # 최근 1시간
+```
+
+stdout 은 CLI 의 JSON 요약이고 stderr 은 로그 줄이다. 문서 경로나 본문은
+어느 쪽에도 찍히지 않는다.
+
+### 실패해도 timer 는 죽지 않는다
+
+`StartLimitIntervalSec=0` 이라 연속 실패가 unit 을 비활성화하지 않는다. 한 패스가
+실패하면 그 패스만 failed 로 남고 다음 주기에 다시 실행된다. 백엔드 컨테이너가
+내려가 있으면 그 동안의 패스는 실패하고, 올라오면 자동으로 따라잡는다.
+
+`TimeoutStartSec=30min` 은 멈춘 패스가 락을 영원히 쥐는 것을 막는다.
+
+### 복사 중인 파일
+
+`sync` 의 기존 unstable 판정이 그대로 동작한다. 크기나 mtime 이 스캔 중에 움직이는
+파일은 그 패스에서 건너뛰고 다음 패스로 넘긴다. 큰 파일을 복사하는 중에 timer 가
+돌아도 반쪽짜리 파일이 수집되지 않는다.
+
+### 되돌리기
+
+```bash
+sudo ./deploy/systemd/uninstall.sh
+```
+
+---
+
 ## 5. Shutdown
 
 ```bash

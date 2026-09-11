@@ -14,6 +14,8 @@ export interface SearchQuery {
   page?: number
   size?: number
   departmentId?: string | null
+  /** Only documents in no folder. Never sent together with folderPath. */
+  topLevelOnly?: boolean
   year?: number | null
   tagIds?: number[]
   fileType?: FileType | null
@@ -35,6 +37,9 @@ export function searchDocuments(
       page: query.page,
       size: query.size,
       department_id: query.departmentId,
+      // Omitted entirely when false: the backend's default is false, and
+      // sending it would put a meaningless parameter in every shared URL.
+      top_level_only: query.topLevelOnly ? true : undefined,
       year: query.year,
       tag_id: query.tagIds,
       file_type: query.fileType,

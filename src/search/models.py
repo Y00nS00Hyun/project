@@ -74,6 +74,15 @@ class SearchRequest:
     #: Validated in __post_init__, never interpolated into SQL.
     folder_path: str | None = None
 
+    #: Restricts results to documents sitting at the top of the shared folder,
+    #: in no folder at all.
+    #:
+    #: Not expressible as a folder_path: every path starts at the root, so a
+    #: prefix that selects these would select everything. It is the complement
+    #: of "inside some folder", which is why it is its own flag rather than a
+    #: reserved path value that a real folder could one day collide with.
+    top_level_only: bool = False
+
     #: Hard scope: when set, only this document can produce candidates. Unlike
     #: the fields above this is not a user-chosen filter -- it is set by the
     #: server from a chat session's stored scope, and it is applied in the same
@@ -95,6 +104,13 @@ class SearchRequest:
         if self.file_type is not None and self.file_type not in FILE_TYPES:
             raise InvalidSearchRequestError(
                 f"file_type must be one of {', '.join(FILE_TYPES)}"
+            )
+        if self.top_level_only and self.folder_path is not None:
+            # "Inside this folder" and "inside no folder" cannot both hold. A
+            # request asking for both is a client bug, and silently preferring
+            # one would hide it behind an empty result page.
+            raise InvalidSearchRequestError(
+                "folder_path and top_level_only cannot be combined"
             )
         if self.folder_path is not None:
             # Rejects absolute paths, '..', empty segments and anything that is

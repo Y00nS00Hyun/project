@@ -271,3 +271,73 @@ describe('department is gone from every authentication surface', () => {
     expect(String((posted![1] as RequestInit).body ?? '{}')).not.toMatch(/department/)
   })
 })
+
+describe('AdminPage recovery', () => {
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  function adminFetch(status: 'PENDING' | 'ACTIVE' | 'DISABLED') {
+    return mockFetch({
+      ...SIGNED_IN_ADMIN,
+      '/api/v1/admin/users': [{
+        user_id: 'u-2', login_id: 'soohyun', name: '윤바니안', status,
+        is_system_admin: false, created_at: '2026-09-11T00:00:00Z',
+      }],
+    })
+  }
+
+  it('offers a way back for a disabled account', async () => {
+    // Without this the row has no controls at all, and a mis-click can only be
+    // undone with a shell on the server.
+    renderApp(adminFetch('DISABLED'), '/admin')
+    expect(await screen.findByRole('button', { name: '활성화' })).toBeEnabled()
+  })
+
+  it('re-enabling calls the same approve endpoint', async () => {
+    const fetchMock = adminFetch('DISABLED')
+    renderApp(fetchMock, '/admin')
+    await userEvent.click(await screen.findByRole('button', { name: '활성화' }))
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes('/approve')),
+    ).toBe(true)
+  })
+
+  it('does not offer to disable an already disabled account', async () => {
+    renderApp(adminFetch('DISABLED'), '/admin')
+    await screen.findByRole('button', { name: '활성화' })
+    expect(screen.queryByRole('button', { name: '비활성화' })).not.toBeInTheDocument()
+  })
+
+  it('asks before disabling', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const fetchMock = adminFetch('ACTIVE')
+    renderApp(fetchMock, '/admin')
+
+    await userEvent.click(await screen.findByRole('button', { name: '비활성화' }))
+    expect(confirm).toHaveBeenCalled()
+    // Declining must not send the request. This is the action that logs
+    // somebody out immediately.
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes('/disable')),
+    ).toBe(false)
+  })
+
+  it('disables once confirmed', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const fetchMock = adminFetch('ACTIVE')
+    renderApp(fetchMock, '/admin')
+    await userEvent.click(await screen.findByRole('button', { name: '비활성화' }))
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes('/disable')),
+    ).toBe(true)
+  })
+
+  it('never asks before a non-destructive action', async () => {
+    const confirm = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirm)
+    renderApp(adminFetch('PENDING'), '/admin')
+    await userEvent.click(await screen.findByRole('button', { name: '승인' }))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+})

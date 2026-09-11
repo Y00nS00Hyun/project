@@ -90,6 +90,11 @@ export interface DocumentDetail {
    * file being seen again. NOT when the file's contents changed.
    */
   updated_at: string
+  /**
+   * Size of the current revision's file, in bytes. The version search serves,
+   * not the newest on disk -- it is what a download would actually fetch.
+   */
+  file_size: number | null
   /** The current revision's filesystem mtime. What a person means by 수정일. */
   source_modified_at: string | null
   /**
@@ -364,4 +369,30 @@ export interface AdminUser {
   status: 'PENDING' | 'ACTIVE' | 'DISABLED'
   is_system_admin: boolean
   created_at: string
+}
+
+// ---------------------------------------------------------------------------
+// Extracted text preview (contract v1.4, src/api/schemas/documents.py)
+// ---------------------------------------------------------------------------
+
+/** One piece of extracted text, in document order. */
+export interface TextBlock {
+  chunk_index: number
+  text: string
+  section_title: string | null
+  anchor: Anchor
+}
+
+/**
+ * NOT a rendering of the original file. Tables, columns and layout are gone;
+ * what remains is what the parser could read -- which is also exactly what
+ * search and citations work from.
+ */
+export interface TextPreviewResponse {
+  /** Always the current READY revision, or null when nothing is ready. */
+  revision_id: string | null
+  items: TextBlock[]
+  offset: number
+  total: number
+  has_more: boolean
 }

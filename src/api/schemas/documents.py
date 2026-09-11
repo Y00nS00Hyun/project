@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
-from .common import DepartmentRef, RevisionRef, TagRef, UserRef
+from .common import Anchor, DepartmentRef, RevisionRef, TagRef, UserRef
 
 
 class SummaryOut(BaseModel):
@@ -85,6 +85,12 @@ class DocumentDetailOut(BaseModel):
     #: a promotion, the file being seen again. Not when the file's contents
     #: changed; `source_modified_at` is that.
     updated_at: datetime
+    #: Size of the current revision's file, in bytes.
+    #:
+    #: The revision search is serving, like every other figure here -- not the
+    #: newest file on disk. Somebody deciding whether to download wants to know
+    #: what they would actually get.
+    file_size: int | None = None
     #: The filesystem mtime of the current revision's file, as the shared
     #: folder reports it. What a person means by "수정일".
     source_modified_at: datetime | None = None
@@ -129,3 +135,39 @@ class RevisionListResponse(BaseModel):
     page: int
     size: int
     total: int
+
+
+class TextBlockOut(BaseModel):
+    """One piece of the extracted text, in document order.
+
+    A chunk, which is the same unit search matches and citations point at -- so
+    a block shown here and a source quoted in an answer describe the same place
+    the same way.
+    """
+
+    chunk_index: int
+    text: str
+    section_title: str | None = None
+    anchor: Anchor
+
+
+class TextPreviewResponse(BaseModel):
+    """Extracted text, a page at a time.
+
+    NOT a rendering of the original file. Tables, columns and layout are gone;
+    what remains is the text the parser could read, which is also exactly what
+    search and citations work from. Showing it is how a reader checks whether
+    the system understood the document.
+
+    Deliberately paged and absent from the document detail response. A 200,000
+    character report would otherwise be sent to every visitor who opened the
+    page, most of whom only wanted the title.
+    """
+
+    #: The revision this text came from -- always the current READY one. Null
+    #: when nothing is ready, in which case `items` is empty.
+    revision_id: str | None = None
+    items: list[TextBlockOut] = []
+    offset: int = 0
+    total: int = 0
+    has_more: bool = False

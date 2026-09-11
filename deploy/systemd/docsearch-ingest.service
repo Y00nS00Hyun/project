@@ -1,0 +1,42 @@
+[Unit]
+Description=docsearch: scan the shared folder and ingest new or changed files
+Documentation=file:///home/sh-test/project/docs/deployment.md
+# Only meaningful once Docker is up. Not Requires=: if Docker is down this run
+# should fail and the next tick should try again, not drag the timer with it.
+After=docker.service
+Wants=docker.service
+
+# A failed pass must never disable the timer. Without this, systemd's default
+# rate limiter refuses to start a unit that failed repeatedly -- which is
+# exactly the situation where the next attempt matters most.
+#
+# It belongs in [Unit], not [Service]. systemd accepts it in [Service] on some
+# versions and logs "Unknown key name" on others (249 among them), where it is
+# silently ignored and the protection is simply absent.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+
+# Runs as the deployment's owner, who is in the docker group. Not root: this
+# needs exactly one privilege, and it already has it.
+User=sh-test
+Group=docker
+
+# One place to change the schedule's companion settings. The file is optional,
+# so a deployment that does not create it uses the defaults in the script.
+EnvironmentFile=-/etc/docsearch/ingest.env
+
+ExecStart=/home/sh-test/project/deploy/systemd/docsearch-ingest.sh
+
+# Bounded so a wedged run cannot hold the lock forever. Comfortably longer than
+# a full re-ingest of the corpus; a pass that exceeds it is stuck, and killing
+# it frees the lock for the next tick.
+TimeoutStartSec=30min
+
+# stdout is the CLI's JSON summary and stderr its log lines; both go to the
+# journal, which is where an operator looks. Nothing here prints document paths
+# or body text.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=docsearch-ingest

@@ -19,7 +19,12 @@ from ..document_service import (
     DocumentService,
 )
 from ..errors import document_not_found, not_downloadable, validation_error
-from ..schemas.documents import DocumentDetailOut, RevisionListResponse, RevisionOut
+from ..schemas.documents import (
+    DocumentDetailOut,
+    RevisionListResponse,
+    RevisionOut,
+    TextPreviewResponse,
+)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -79,6 +84,52 @@ def list_revisions(
     return RevisionListResponse(
         items=[RevisionOut(**item) for item in items], page=page, size=size, total=total
     )
+
+
+#: Blocks per preview request. Enough to fill a screen and judge the document,
+#: small enough that opening one is not a bulk export of its body.
+PREVIEW_PAGE_SIZE = 20
+MAX_PREVIEW_PAGE_SIZE = 50
+
+
+@router.get(
+    "/{document_id}/text",
+    response_model=TextPreviewResponse,
+    summary="추출 텍스트 미리보기",
+)
+def preview_text(
+    request: Request,
+    document_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(PREVIEW_PAGE_SIZE, ge=1, le=MAX_PREVIEW_PAGE_SIZE),
+    user: AuthenticatedUser = Depends(require_user),
+    conn: psycopg.Connection = Depends(get_connection),
+) -> TextPreviewResponse:
+    """The text the parser extracted from the current READY revision.
+
+    Its own endpoint rather than a field on the detail response: the text is
+    large, and most visitors to a document page never ask for it.
+
+    Nothing here reaches an LLM. It reads rows the ingestion pipeline already
+    wrote and returns them.
+    """
+    unknown = sorted(set(request.query_params.keys()) - {"offset", "limit"})
+    if unknown:
+        raise validation_error(
+            "알 수 없는 query parameter가 있습니다.",
+            [{"field": name, "reason": "지원하지 않는 parameter입니다."} for name in unknown],
+        )
+    try:
+        # ACL is checked inside, on the logical document, before any body text
+        # is read.
+        payload = _service(conn).text_preview(
+            user.user_id, document_id, offset=offset, limit=limit,
+        )
+    except DocumentNotVisible as exc:
+        raise document_not_found() from exc
+    # Deliberately not logged. The one thing this endpoint returns is document
+    # body text, and a log line is the easiest place for it to escape.
+    return TextPreviewResponse(**payload)
 
 
 @router.get("/{document_id}/download", summary="원본 다운로드")

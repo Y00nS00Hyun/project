@@ -384,31 +384,352 @@ class TestScenarioMissing:
 # ---------------------------------------------------------------------------
 
 class TestMoveRenamePolicy:
-    def test_moved_file_becomes_a_new_document_and_the_old_one_goes_missing(
+    """A renamed or moved file is the same document under a different name.
+
+    Identity used to be the path, so renaming a file produced a second document
+    and left the first to expire as missing -- taking its chat citations,
+    favourites and permissions with it into a row nobody would find again.
+
+    A pair is only accepted when it is unambiguous: one path gone, one path
+    appeared, identical bytes, exactly one candidate on each side. Anything
+    less is left as a new document, because a wrong merge attaches one
+    document's history to another file and no later scan would notice.
+    """
+
+    def document_ids(self, conn) -> dict[str, str]:
+        with conn.cursor() as cur:
+            cur.execute("SELECT source_path, id::text FROM documents WHERE NOT is_deleted")
+            return dict(cur.fetchall())
+
+    def test_a_rename_keeps_the_same_document(
         self, connection_factory, conn, shared_root
     ):
-        """Conservative by design.
-
-        Identical bytes at a new path could be a move or an independent copy.
-        Merging them on hash alone would fuse two unrelated documents and their
-        histories, which cannot be undone. Creating a new document is the
-        recoverable mistake.
-        """
         path = write(shared_root / "old" / "a.hwp", b"same bytes")
         sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
         sync.scan_once()
+        before = self.document_ids(conn)["old/a.hwp"]
 
         path.rename(shared_root / "old" / "renamed.hwp")
         result = sync.scan_once()
 
+        assert result.renamed == 1
+        assert result.new_documents == 0
+        assert result.missing == 0
+        assert counts(conn)["documents"] == 1
+        # The identity survived: every citation, favourite and permission that
+        # pointed at this document still does.
+        assert self.document_ids(conn)["old/renamed.hwp"] == before
+
+    def test_a_rename_creates_no_revision(self, connection_factory, conn, shared_root):
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root)
+        sync.scan_once()
+        path.rename(shared_root / "b.hwp")
+        result = sync.scan_once()
+
+        assert result.new_revisions == 0
+        assert counts(conn)["document_revisions"] == 1
+        # The bytes never changed, so nothing needs re-parsing or re-embedding.
+        assert result.jobs_created == 0
+
+    def test_a_rename_leaves_the_revision_pointers_alone(
+        self, connection_factory, conn, shared_root
+    ):
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root)
+        sync.scan_once()
+        with conn.cursor() as cur:
+            cur.execute("SELECT latest_revision_id, current_revision_id FROM documents")
+            before = cur.fetchone()
+
+        path.rename(shared_root / "b.hwp")
+        sync.scan_once()
+        with conn.cursor() as cur:
+            cur.execute("SELECT latest_revision_id, current_revision_id FROM documents")
+            assert cur.fetchone() == before
+
+    def test_a_rename_does_not_rewrite_where_a_revision_came_from(
+        self, connection_factory, conn, shared_root
+    ):
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root)
+        sync.scan_once()
+        path.rename(shared_root / "b.hwp")
+        sync.scan_once()
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT source_path_at_ingest FROM document_revisions")
+            # History: this revision really was read from a.hwp, and that stays
+            # true however the file is named afterwards.
+            assert cur.fetchone()[0] == "a.hwp"
+
+    def test_a_move_between_folders_keeps_the_same_document(
+        self, connection_factory, conn, shared_root
+    ):
+        path = write(shared_root / "프로젝트_A" / "보고서.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+        before = self.document_ids(conn)["프로젝트_A/보고서.hwp"]
+
+        (shared_root / "프로젝트_B").mkdir(parents=True, exist_ok=True)
+        path.rename(shared_root / "프로젝트_B" / "보고서.hwp")
+        result = sync.scan_once()
+
+        assert result.renamed == 1
+        assert counts(conn)["documents"] == 1
+        # The folder tree reads source_path, so the document simply appears
+        # under the new folder.
+        assert self.document_ids(conn)["프로젝트_B/보고서.hwp"] == before
+
+    def test_the_title_follows_the_new_file_name(
+        self, connection_factory, conn, shared_root
+    ):
+        path = write(shared_root / "옛이름.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root)
+        sync.scan_once()
+        path.rename(shared_root / "새이름.hwp")
+        sync.scan_once()
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT title, original_filename FROM documents")
+            title, original = cur.fetchone()
+        assert title == "새이름"
+        assert original == "새이름.hwp"
+
+    def test_a_rename_that_changes_the_kind_reclassifies(
+        self, connection_factory, conn, shared_root
+    ):
+        path = write(shared_root / "사용자매뉴얼.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root)
+        sync.scan_once()
+        path.rename(shared_root / "완료보고서.hwp")
+        sync.scan_once()
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.name FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
+                WHERE t.name LIKE '종류:%%'
+                """
+            )
+            assert cur.fetchone()[0] == "종류:보고서"
+
+    def test_a_rename_with_an_edit_is_a_new_document(
+        self, connection_factory, conn, shared_root
+    ):
+        """The stated policy, not a limitation.
+
+        Different name and different bytes leaves nothing to match on but the
+        name, and guessing from names is how one document's history ends up
+        attached to another.
+        """
+        path = write(shared_root / "a.hwp", b"original bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+
+        path.rename(shared_root / "b.hwp")
+        write(shared_root / "b.hwp", b"edited bytes")
+        result = sync.scan_once()
+
+        assert result.renamed == 0
         assert result.new_documents == 1
         assert result.missing == 1
         assert counts(conn)["documents"] == 2
+
+    def test_two_copies_of_a_vanished_file_are_not_a_rename(
+        self, connection_factory, conn, shared_root
+    ):
+        """Ambiguous on the new side: which copy is the original?
+
+        No answer is better than a coin flip, because the wrong one silently
+        inherits the document's citations and permissions.
+        """
+        path = write(shared_root / "원본.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+
+        path.unlink()
+        write(shared_root / "복사본.hwp", b"same bytes")
+        write(shared_root / "백업.hwp", b"same bytes")
+        result = sync.scan_once()
+
+        assert result.renamed == 0
+        assert result.new_documents == 2
+        assert result.missing == 1
+        assert counts(conn)["documents"] == 3
+
+    def test_two_vanished_files_with_one_arrival_is_not_a_rename(
+        self, connection_factory, conn, shared_root
+    ):
+        """Ambiguous on the old side: whose history would the new file inherit?"""
+        first = write(shared_root / "하나.hwp", b"same bytes")
+        second = write(shared_root / "둘.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+
+        first.unlink()
+        second.unlink()
+        write(shared_root / "셋.hwp", b"same bytes")
+        result = sync.scan_once()
+
+        assert result.renamed == 0
+        assert result.new_documents == 1
+        assert result.missing == 2
+
+    def test_a_plain_new_file_is_still_a_new_document(
+        self, connection_factory, conn, shared_root
+    ):
+        write(shared_root / "a.hwp", b"first")
+        sync = make_sync(connection_factory, shared_root)
+        sync.scan_once()
+
+        write(shared_root / "b.hwp", b"second")
+        result = sync.scan_once()
+
+        assert result.renamed == 0
+        assert result.new_documents == 1
+        assert counts(conn)["documents"] == 2
+
+    def test_a_deletion_with_no_arrival_is_still_missing(
+        self, connection_factory, conn, shared_root
+    ):
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+
+        path.unlink()
+        result = sync.scan_once()
+
+        assert result.renamed == 0
+        assert result.missing == 1
+
+    def test_a_file_gone_since_an_earlier_scan_is_not_a_rename_candidate(
+        self, connection_factory, conn, shared_root
+    ):
+        """Same bytes, but the disappearance and the arrival are unrelated.
+
+        The file went missing, several scans ran, and only then did identical
+        bytes turn up elsewhere. That is a copy restored from a backup or from
+        someone else's folder far more often than it is the original file
+        finally landing -- and pairing them would graft the old document's
+        revisions and citations onto it.
+        """
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+        vanished_id = self.document_ids(conn)["a.hwp"]
+
+        # Scan N+1: the file is gone and nothing arrives, so the document is
+        # marked missing. Two more scans confirm it stays that way.
+        path.unlink()
+        assert sync.scan_once().missing == 1
+        sync.scan_once()
+        sync.scan_once()
+
+        # Only now do the same bytes appear at a new path.
+        write(shared_root / "b.hwp", b"same bytes")
+        result = sync.scan_once()
+
+        assert result.renamed == 0
+        assert result.new_documents == 1
+        ids = self.document_ids(conn)
+        assert ids["b.hwp"] != vanished_id
+        # The old document is untouched -- still missing, still its own row.
+        assert ids["a.hwp"] == vanished_id
         with conn.cursor() as cur:
-            cur.execute("SELECT source_path, missing_since IS NOT NULL FROM documents ORDER BY source_path")
-            rows = dict(cur.fetchall())
-        assert rows["old/a.hwp"] is True
-        assert rows["old/renamed.hwp"] is False
+            cur.execute("SELECT missing_since FROM documents WHERE id = %s", (vanished_id,))
+            assert cur.fetchone()[0] is not None
+
+    def test_disappearing_and_arriving_in_one_scan_is_still_a_rename(
+        self, connection_factory, conn, shared_root
+    ):
+        """The distinction is when the path vanished, not whether it did.
+
+        The mirror of the test above: here both halves happen between the same
+        two scans, which is what a rename looks like.
+        """
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+        before = self.document_ids(conn)["a.hwp"]
+
+        path.rename(shared_root / "b.hwp")
+        result = sync.scan_once()
+
+        assert result.renamed == 1
+        assert result.new_documents == 0
+        assert result.missing == 0
+        assert counts(conn)["documents"] == 1
+        assert self.document_ids(conn)["b.hwp"] == before
+
+    def test_a_document_already_missing_stays_missing_when_its_own_file_returns(
+        self, connection_factory, conn, shared_root
+    ):
+        """Restoring the file at its original path is a restore, not a rename.
+
+        Worth pinning alongside the rule above: narrowing the rename candidates
+        must not break the path that has always handled this, which matches on
+        source_path before any hash pairing runs.
+        """
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root, missing_grace_seconds=3600)
+        sync.scan_once()
+        original = self.document_ids(conn)["a.hwp"]
+
+        path.unlink()
+        sync.scan_once()
+        write(shared_root / "a.hwp", b"same bytes")
+        result = sync.scan_once()
+
+        assert result.renamed == 0
+        assert result.new_documents == 0
+        assert result.restored == 1
+        assert self.document_ids(conn)["a.hwp"] == original
+        with conn.cursor() as cur:
+            cur.execute("SELECT missing_since FROM documents WHERE id = %s", (original,))
+            assert cur.fetchone()[0] is None
+
+    def test_a_rename_keeps_the_document_permissions(
+        self, connection_factory, conn, shared_root
+    ):
+        """Nothing is re-granted, because nothing was revoked.
+
+        The permission rows reference document_id, and the document_id did not
+        change -- which is the whole point of pairing instead of recreating.
+        """
+        path = write(shared_root / "a.hwp", b"same bytes")
+        sync = make_sync(connection_factory, shared_root)
+        sync.scan_once()
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM documents")
+            document_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO users (id, sso_subject) VALUES "
+                "('11111111-1111-1111-1111-111111111111', 'reader')"
+            )
+            cur.execute(
+                "INSERT INTO document_permissions (document_id, user_id, permission) "
+                "VALUES (%s, '11111111-1111-1111-1111-111111111111', 'READ')",
+                (document_id,),
+            )
+            cur.execute(
+                "INSERT INTO document_permissions (document_id, is_public, permission) "
+                "VALUES (%s, TRUE, 'READ')",
+                (document_id,),
+            )
+
+        path.rename(shared_root / "b.hwp")
+        sync.scan_once()
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FILTER (WHERE user_id IS NOT NULL), "
+                "       count(*) FILTER (WHERE is_public) "
+                "FROM document_permissions WHERE document_id = %s",
+                (document_id,),
+            )
+            assert cur.fetchone() == (1, 1)
 
 
 # ---------------------------------------------------------------------------

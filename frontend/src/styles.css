@@ -554,3 +554,76 @@ select:focus-visible {
   display: flex;
   gap: 0.4rem;
 }
+
+
+/* Destructive action in the admin table. The only control there that takes
+   something away, sitting beside ones that do not -- so it does not look like
+   them. */
+.button-danger {
+  color: #a51d2d;
+  border-color: #d4a0a6;
+}
+.button-danger:hover:not(:disabled) {
+  background: #fdf0f1;
+}
+
+/* Extracted-text preview. Bounded height with its own scroll: the point is to
+   glance at what the parser read, not to turn the document page into a reader
+   that pushes everything else off the screen. */
+.text-preview {
+  max-height: 28rem;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  background: #fcfcfc;
+  margin-bottom: 0.75rem;
+}
+.text-block + .text-block {
+  border-top: 1px solid #eee;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+.text-block-section {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 600;
+}
+.text-block-body {
+  margin: 0;
+  /* The parser's own line breaks are meaningful -- a table row reads as
+     nonsense once they are collapsed. */
+  white-space: pre-wrap;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+/* Section heading that opens and closes. */
+.disclosure {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.disclosure:hover {
+  text-decoration: underline;
+}
+
+/* The served revision is behind the file on disk. A notice, not an error:
+   ingestion is on a timer and this resolves by itself. */
+.version-warning {
+  border: 1px solid #e8c88a;
+  background: #fdf7e8;
+  border-radius: 6px;
+  padding: 0.6rem 0.85rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+.chip-processing {
+  background: #fdf7e8;
+  border-color: #e8c88a;
+  color: #8a6116;
+}

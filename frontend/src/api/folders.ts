@@ -29,6 +29,15 @@ export interface FolderListResponse {
    * subdirectories would report zero while holding documents.
    */
   total_documents: number
+  /**
+   * Documents belonging to no folder -- the ones at the top of the shared
+   * folder. They appear in no `items` entry, so without this the sidebar can
+   * show the folders and the total but not account for the difference.
+   *
+   * Selected with `top_level_only`, not a `folder_path`: every path starts at
+   * the root, so no prefix picks out exactly the documents not under one.
+   */
+  top_level_documents: number
 }
 
 /**

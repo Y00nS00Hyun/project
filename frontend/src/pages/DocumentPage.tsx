@@ -5,10 +5,11 @@ import { downloadDocument, fetchDocument, fetchRevisions } from '../api/document
 import { DocumentChat } from '../components/DocumentChat'
 import { DocumentSummary } from '../components/DocumentSummary'
 import { RevisionList } from '../components/RevisionList'
+import { TextPreview } from '../components/TextPreview'
 import { Pagination } from '../components/Pagination'
 import { ErrorView, LoadingState } from '../components/StateViews'
 import { useAsyncResource } from '../hooks/useAsyncResource'
-import { fileTypeLabel, formatDate, formatDateOnly } from '../labels'
+import { fileTypeLabel, formatDate, formatDateOnly, formatFileSize } from '../labels'
 
 export function DocumentPage() {
   const { documentId = '' } = useParams()
@@ -17,6 +18,7 @@ export function DocumentPage() {
 
 function DocumentContent({ documentId }: { documentId: string }) {
   const [revisionPage, setRevisionPage] = useState(1)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const detail = useAsyncResource(
     (signal) => fetchDocument(documentId, { signal }),
@@ -101,7 +103,11 @@ function DocumentContent({ documentId }: { documentId: string }) {
   const doc = detail.data
   const current = doc.current_revision
   const latest = doc.latest_revision
-  const newerPending = latest != null && latest.revision_id !== current?.revision_id
+  // Requires a current revision, not merely a different one. A document whose
+  // first revision is still being processed has nothing older to fall back to,
+  // and saying search is "using the previous version" would be false -- that
+  // case is covered by the 검색할 본문 없음 notice below.
+  const newerPending = current != null && latest != null && latest.revision_id !== current.revision_id
 
   return (
     <main className="page">
@@ -132,13 +138,27 @@ function DocumentContent({ documentId }: { documentId: string }) {
           value={doc.source_modified_at ? formatDate(doc.source_modified_at) : '알 수 없음'}
         />
         <Field
+          label="파일 크기"
+          value={formatFileSize(doc.file_size) ?? '알 수 없음'}
+        />
+        <Field
           label="검색에 사용 중인 버전"
           value={current ? `Rev ${current.revision_no} (${formatDate(current.created_at)})` : '검색 불가'}
         />
-        <Field
-          label="최신 감지 버전"
-          value={latest ? `Rev ${latest.revision_no} (${formatDate(latest.created_at)})` : '-'}
-        />
+        {/* "최신 감지 버전" appears only while the two disagree. When they
+            agree it was the same number printed twice, which is what got it
+            removed from the grid; while they disagree it is the one figure
+            that tells a reader their edit was seen but is not searchable
+            yet. */}
+        {newerPending && latest && (
+          <div className="detail-field">
+            <dt>최신 감지 버전</dt>
+            <dd>
+              Rev {latest.revision_no} ({formatDate(latest.created_at)}){' '}
+              <span className="chip chip-processing">처리 중</span>
+            </dd>
+          </div>
+        )}
       </dl>
 
       {doc.tags.length > 0 && (
@@ -153,9 +173,13 @@ function DocumentContent({ documentId }: { documentId: string }) {
         </ul>
       )}
 
+      {/* Not an error, and not something the reader can act on: ingestion runs
+          on a timer and this clears itself. It is here because a search that
+          quietly answers from last week's copy of a file the reader edited
+          this morning is the kind of wrong that goes unnoticed. */}
       {newerPending && (
-        <p className="notice">
-          최신 파일 버전이 아직 검색에 반영되지 않았습니다. 검색은 현재 검색 버전을 사용합니다.
+        <p className="version-warning" role="status">
+          <span aria-hidden="true">⚠</span> 최신 파일을 처리 중입니다. 현재 검색에는 이전 버전이 사용되고 있습니다.
         </p>
       )}
       {!doc.is_searchable && (
@@ -195,25 +219,44 @@ function DocumentContent({ documentId }: { documentId: string }) {
         {downloadError && <ErrorView error={downloadError} />}
       </section>
 
-      <section className="section">
-        <h2 className="section-title">버전 이력</h2>
-        {revisions.error ? (
+      {doc.is_searchable && <TextPreview documentId={doc.document_id} />}
+
+      {/* Most documents are ingested once and never edited, and for those the
+          history is a single row restating the page above it. Hidden there,
+          and collapsed -- not hidden -- once there is an actual sequence to
+          look through. Revisions themselves are untouched: this is which rows
+          are drawn, not which rows exist. */}
+      {revisions.error ? (
+        <section className="section">
+          <h2 className="section-title">버전 이력</h2>
           <ErrorView error={revisions.error} />
-        ) : revisions.data ? (
-          <>
-            <RevisionList revisions={revisions.data.items} />
-            <Pagination
-              page={revisions.data.page}
-              size={revisions.data.size}
-              total={revisions.data.total}
-              onChange={setRevisionPage}
-              label="버전 이력 페이지"
-            />
-          </>
-        ) : (
-          <LoadingState label="버전 이력을 불러오는 중..." />
-        )}
-      </section>
+        </section>
+      ) : revisions.data && revisions.data.total > 1 ? (
+        <section className="section">
+          <h2 className="section-title">
+            <button
+              type="button"
+              className="disclosure"
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen((open) => !open)}
+            >
+              <span aria-hidden="true">{historyOpen ? '▾' : '▸'}</span> 버전 이력 ({revisions.data.total})
+            </button>
+          </h2>
+          {historyOpen && (
+            <>
+              <RevisionList revisions={revisions.data.items} />
+              <Pagination
+                page={revisions.data.page}
+                size={revisions.data.size}
+                total={revisions.data.total}
+                onChange={setRevisionPage}
+                label="버전 이력 페이지"
+              />
+            </>
+          )}
+        </section>
+      ) : null}
     </main>
   )
 }

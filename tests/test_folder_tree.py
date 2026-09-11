@@ -20,7 +20,11 @@ from ingestion.repository import IngestionRepository
 from ingestion.sync_service import SyncService
 from search.exceptions import InvalidSearchRequestError
 from search.folder_paths import escape_like, normalize_folder_path, subtree_prefix
-from search.folder_tree import browsable_document_count, folder_tree
+from search.folder_tree import (
+    browsable_document_count,
+    folder_tree,
+    top_level_document_count,
+)
 
 ALICE = "11111111-1111-1111-1111-111111111111"
 BOB = "22222222-2222-2222-2222-222222222222"
@@ -394,3 +398,34 @@ class TestBrowsableDocumentCount:
 
     def test_an_empty_user_id_counts_nothing(self, factory):
         assert browsable_document_count(factory, "") == 0
+
+
+class TestTopLevelDocuments:
+    """Documents in no folder at all.
+
+    They contribute no folder row, so the tree alone cannot account for them --
+    which in a flat shared folder is the whole corpus. Counted separately, over
+    the same ACL-filtered set the tree is built from.
+    """
+
+    def test_it_counts_documents_that_produce_no_folder_row(self, world, factory):
+        # Alice reads 공용안내.hwp at the top and three under 프로젝트_A.
+        assert top_level_document_count(factory, ALICE) == 1
+        assert browsable_document_count(factory, ALICE) == 4
+
+    def test_the_two_counts_plus_the_folders_account_for_everything(self, world, factory):
+        top = top_level_document_count(factory, ALICE)
+        in_folders = sum(node.document_count for node in folder_tree(factory, ALICE)
+                         if node.depth == 1)
+        assert top + in_folders == browsable_document_count(factory, ALICE)
+
+    def test_a_user_whose_documents_are_all_in_folders_has_none(self, world, factory):
+        # Bob reads only 프로젝트_B/제안 and 프로젝트_B/운영.
+        assert top_level_document_count(factory, BOB) == 0
+        assert browsable_document_count(factory, BOB) == 2
+
+    def test_an_unreadable_top_level_document_is_not_counted(self, world, factory):
+        assert top_level_document_count(factory, NOBODY) == 0
+
+    def test_an_empty_user_id_counts_nothing(self, factory):
+        assert top_level_document_count(factory, "") == 0

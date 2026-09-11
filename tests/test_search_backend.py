@@ -14,7 +14,7 @@ import psycopg
 import pytest
 
 from ingestion.config import IngestionConfig
-from search.exceptions import SemanticSearchUnavailableError
+from search.exceptions import InvalidSearchRequestError, SemanticSearchUnavailableError
 from search.models import SearchMode, SearchRequest
 from search.repository import SearchRepository
 from search.service import SearchService
@@ -1017,3 +1017,89 @@ class TestRealSemanticSearch:
         model.embed_query("보안 사고")
         assert captured["texts"] == [QUERY_PREFIX + "보안 사고"]
         assert not captured["texts"][0].startswith(PASSAGE_PREFIX)
+
+
+class TestTopLevelOnlyFilter:
+    """Selecting the documents that are in no folder.
+
+    Not expressible as a folder_path: every source_path starts at the root, so
+    a prefix that matched these would match everything. It is the complement of
+    "inside some folder", which is why it is its own flag.
+    """
+
+    @pytest.fixture
+    def world(self, corpus):
+        user = corpus.user("reader")
+        ids = {}
+        for title, path in (
+            ("최상위 문서", "최상위 문서.hwpx"),
+            ("또 다른 최상위", "또 다른 최상위.hwpx"),
+            ("폴더 안 문서", "프로젝트_A/폴더 안 문서.hwpx"),
+            ("깊은 문서", "프로젝트_A/2026/깊은 문서.hwpx"),
+        ):
+            document, _ = corpus.document(title, text="서버 장애 대응 절차")
+            with self.conn_of(corpus).cursor() as cur:
+                cur.execute("UPDATE documents SET source_path = %s WHERE id = %s",
+                            (path, document))
+            corpus.grant(document, user_id=user)
+            ids[title] = document
+        return {"user": user, **ids}
+
+    @staticmethod
+    def conn_of(corpus):
+        return corpus.conn
+
+    def titles(self, service, user_id, **kwargs):
+        result = service.search(SearchRequest(
+            user_id=user_id, query=None, page=1, size=50, **kwargs
+        ))
+        return {item.title for item in result.items}
+
+    def test_it_selects_exactly_the_documents_in_no_folder(self, service, world):
+        assert self.titles(service, world["user"], top_level_only=True) == {
+            "최상위 문서", "또 다른 최상위",
+        }
+
+    def test_without_it_everything_is_returned(self, service, world):
+        assert len(self.titles(service, world["user"])) == 4
+
+    def test_a_folder_filter_selects_the_complement(self, service, world):
+        assert self.titles(service, world["user"], folder_path="프로젝트_A") == {
+            "폴더 안 문서", "깊은 문서",
+        }
+
+    def test_the_two_partitions_cover_everything_exactly_once(self, service, world):
+        top = self.titles(service, world["user"], top_level_only=True)
+        under = self.titles(service, world["user"], folder_path="프로젝트_A")
+        assert top | under == self.titles(service, world["user"])
+        assert not (top & under)
+
+    def test_it_cannot_be_combined_with_a_folder_path(self):
+        # "inside this folder" and "inside no folder" cannot both hold. A
+        # request asking for both is a bug, and quietly preferring one would
+        # hide it behind an empty page.
+        with pytest.raises(InvalidSearchRequestError):
+            SearchRequest(
+                user_id="11111111-1111-1111-1111-111111111111",
+                folder_path="프로젝트_A", top_level_only=True,
+            )
+
+    def test_acl_still_applies(self, service, corpus, world):
+        stranger = corpus.user("stranger")
+        assert self.titles(service, stranger, top_level_only=True) == set()
+
+    def test_it_composes_with_the_other_filters(self, service, conn, world):
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE document_revisions SET document_year = 2026 "
+                "WHERE document_id = %s", (world["최상위 문서"],))
+        assert self.titles(service, world["user"], top_level_only=True, year=2026) == {
+            "최상위 문서",
+        }
+
+    def test_it_works_for_a_semantic_query_too(self, service, world):
+        result = service.search(SearchRequest(
+            user_id=world["user"], query="서버 장애", mode=SearchMode.SEMANTIC,
+            page=1, size=50, top_level_only=True,
+        ))
+        assert {item.title for item in result.items} == {"최상위 문서", "또 다른 최상위"}

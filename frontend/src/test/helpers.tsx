@@ -13,6 +13,8 @@ import type {
   Revision,
   SearchItem,
   SearchResponse,
+  TextBlock,
+  TextPreviewResponse,
 } from '../api/types'
 
 /**
@@ -157,6 +159,7 @@ export function makeDetail(overrides: Partial<DocumentDetail> = {}): DocumentDet
     tags: [{ id: 12, name: '보안' }],
     created_at: '2026-01-05T00:00:00Z',
     updated_at: '2026-08-30T04:12:00Z',
+    file_size: 9215488,
     source_modified_at: '2025-12-01T09:30:00Z',
     document_date: '2025-11-26',
     current_revision: { revision_id: 'rev-2', revision_no: 2, created_at: '2026-08-30T04:12:00Z' },
@@ -191,6 +194,33 @@ export function makeRevision(overrides: Partial<Revision> = {}): Revision {
     is_current: true,
     is_ready: true,
     created_at: '2026-08-30T04:12:00Z',
+    ...overrides,
+  }
+}
+
+/**
+ * A page of extracted text. `total` is the count of blocks in the whole
+ * revision, not the page, so `has_more` and the fixture stay consistent.
+ */
+export function makeTextPage(
+  overrides: Partial<TextPreviewResponse> = {},
+): TextPreviewResponse {
+  return {
+    revision_id: 'rev-2',
+    items: [makeTextBlock()],
+    offset: 0,
+    total: 1,
+    has_more: false,
+    ...overrides,
+  }
+}
+
+export function makeTextBlock(overrides: Partial<TextBlock> = {}): TextBlock {
+  return {
+    chunk_index: 0,
+    text: '본 사업은 사내 문서 검색 체계를 개선하기 위한 것으로,',
+    section_title: null,
+    anchor: { type: 'paragraph', paragraph_index: 1, paragraph_end: 4 },
     ...overrides,
   }
 }

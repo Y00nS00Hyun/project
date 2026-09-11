@@ -115,6 +115,7 @@ class SearchService:
             # Escaped and separator-terminated by SearchRequest; the SQL only
             # appends the wildcard.
             "folder_prefix": request.folder_prefix,
+            "top_level_only": request.top_level_only,
             # Server-set scope, never a client filter. Passing it here rather
             # than at each route means no route can be added that forgets it.
             "scope_document_id": request.document_id,

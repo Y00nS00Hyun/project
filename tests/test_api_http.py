@@ -7,6 +7,7 @@ layer is a leak to the browser.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from pathlib import Path
@@ -626,6 +627,176 @@ class TestDownload:
         )
         assert response.status_code == 409
         assert b"SECRET" not in response.content
+
+
+# ---------------------------------------------------------------------------
+# Extracted-text preview
+# ---------------------------------------------------------------------------
+
+class TestTextPreview:
+    """GET /documents/{id}/text.
+
+    Serves document body text, so it is exactly as sensitive as download and
+    is held to the same rules: ACL first, current READY revision only, and a
+    bounded page rather than the whole document.
+    """
+
+    def preview(self, client, document_id, user_id, **params):
+        return client.get(
+            f"/api/v1/documents/{document_id}/text",
+            params=params, headers=as_user(user_id),
+        )
+
+    def test_returns_the_extracted_text_in_document_order(self, client, corpus, world):
+        doc, _ = corpus.document("점검 계획", chunks=["첫 문단", "둘째 문단", "셋째 문단"])
+        corpus.grant(doc, user_id=world["user_a"])
+
+        payload = self.preview(client, doc, world["user_a"]).json()
+        assert [item["text"] for item in payload["items"]] == ["첫 문단", "둘째 문단", "셋째 문단"]
+        assert [item["chunk_index"] for item in payload["items"]] == [0, 1, 2]
+        assert payload["total"] == 3
+        assert payload["has_more"] is False
+
+    def test_unauthorized_preview_is_404_not_403(self, client, world):
+        # Same status as detail: whether the document exists is not disclosed.
+        response = self.preview(client, world["doc3"], world["user_a"])
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"
+
+    def test_document_with_no_grant_is_refused(self, client, world):
+        # doc4 has no permission row at all -- default deny still holds.
+        assert self.preview(client, world["doc4"], world["user_a"]).status_code == 404
+
+    def test_unauthenticated_preview_is_401(self, client, world):
+        response = client.get(f"/api/v1/documents/{world['doc1']}/text")
+        assert response.status_code == 401
+
+    def test_body_text_is_absent_from_a_refused_response(self, client, corpus, world):
+        secret = "대외비 인사 평가 본문"
+        doc, _ = corpus.document("타인 문서", chunks=[secret])
+        corpus.grant(doc, user_id=world["user_b"])
+
+        response = self.preview(client, doc, world["user_a"])
+        assert response.status_code == 404
+        assert secret not in response.text
+
+    def test_soft_deleted_document_is_refused(self, client, corpus, world):
+        doc, _ = corpus.document("삭제된 문서", chunks=["삭제된 본문"], deleted=True)
+        corpus.grant(doc, user_id=world["user_a"])
+        assert self.preview(client, doc, world["user_a"]).status_code == 404
+
+    def test_serves_the_current_revision_not_the_newest(self, client, corpus, conn, world):
+        """The revision search answers from, which is not always the latest."""
+        doc, current = corpus.document("개정 중 문서", chunks=["현재 검색 본문"])
+        corpus.grant(doc, user_id=world["user_a"])
+        # A newer revision exists but is not READY, so it is not promoted.
+        corpus.revision(doc, 2, chunks=["아직 처리되지 않은 본문"], ready=False, promote=False)
+
+        payload = self.preview(client, doc, world["user_a"]).json()
+        assert payload["revision_id"] == current
+        assert [item["text"] for item in payload["items"]] == ["현재 검색 본문"]
+        assert "아직 처리되지 않은 본문" not in json.dumps(payload, ensure_ascii=False)
+
+    def test_no_other_documents_text_leaks_in(self, client, corpus, world):
+        doc, _ = corpus.document("내 문서", chunks=["내 본문"])
+        corpus.grant(doc, user_id=world["user_a"])
+        other, _ = corpus.document("남의 문서", chunks=["남의 본문"])
+        corpus.grant(other, user_id=world["user_a"])
+
+        payload = self.preview(client, doc, world["user_a"]).json()
+        assert [item["text"] for item in payload["items"]] == ["내 본문"]
+
+    def test_pages_through_a_long_document_without_gaps_or_repeats(
+        self, client, corpus, world
+    ):
+        blocks = [f"문단 {i}" for i in range(45)]
+        doc, _ = corpus.document("긴 문서", chunks=blocks)
+        corpus.grant(doc, user_id=world["user_a"])
+
+        seen: list[str] = []
+        offset = 0
+        while True:
+            payload = self.preview(client, doc, world["user_a"], offset=offset, limit=20).json()
+            assert payload["total"] == 45
+            seen.extend(item["text"] for item in payload["items"])
+            if not payload["has_more"]:
+                break
+            offset += len(payload["items"])
+
+        assert seen == blocks
+
+    def test_first_page_is_bounded_by_default(self, client, corpus, world):
+        doc, _ = corpus.document("긴 문서", chunks=[f"문단 {i}" for i in range(80)])
+        corpus.grant(doc, user_id=world["user_a"])
+
+        payload = self.preview(client, doc, world["user_a"]).json()
+        assert len(payload["items"]) == 20
+        assert payload["has_more"] is True
+
+    def test_oversized_limit_is_422_rather_than_the_whole_document(self, client, world):
+        response = self.preview(client, world["doc1"], world["user_a"], limit=5000)
+        assert response.status_code == 422
+
+    def test_offset_past_the_end_is_an_empty_page_with_the_real_total(
+        self, client, corpus, world
+    ):
+        doc, _ = corpus.document("짧은 문서", chunks=["하나", "둘"])
+        corpus.grant(doc, user_id=world["user_a"])
+
+        payload = self.preview(client, doc, world["user_a"], offset=500).json()
+        assert payload["items"] == []
+        assert payload["total"] == 2
+        assert payload["has_more"] is False
+
+    def test_document_with_no_current_revision_previews_nothing(
+        self, client, corpus, world
+    ):
+        doc, _ = corpus.document("미처리 문서", chunks=["처리되지 않은 본문"],
+                                 ready=False, promote=False)
+        corpus.grant(doc, user_id=world["user_a"])
+
+        payload = self.preview(client, doc, world["user_a"]).json()
+        assert payload["revision_id"] is None
+        assert payload["items"] == []
+        assert payload["total"] == 0
+        # Not-yet-ready text is text search does not serve.
+        assert "처리되지 않은 본문" not in json.dumps(payload, ensure_ascii=False)
+
+    def test_anchors_match_the_citation_format(self, client, corpus, world):
+        doc, _ = corpus.document("앵커 문서", chunks=["첫 문단", "둘째 문단"])
+        corpus.grant(doc, user_id=world["user_a"])
+
+        items = self.preview(client, doc, world["user_a"]).json()["items"]
+        # HWPX has no page numbers, so the anchor is a paragraph range -- the
+        # same shape a chat citation carries, and no invented page.
+        assert items[0]["anchor"]["type"] == "paragraph"
+        assert "page" not in json.dumps(items, ensure_ascii=False)
+
+    def test_exposes_no_internal_fields(self, client, corpus, world):
+        doc, _ = corpus.document("점검 계획", chunks=["본문"])
+        corpus.grant(doc, user_id=world["user_a"])
+
+        body = self.preview(client, doc, world["user_a"]).text
+        for leaked in ("source_path", "content_hash", "embedding", "chunk_id",
+                       "document_revision_id", "/tmp", "shared"):
+            assert leaked not in body
+
+    def test_unknown_parameter_is_422(self, client, world):
+        response = self.preview(client, world["doc1"], world["user_a"], cursor="x")
+        assert response.status_code == 422
+
+    def test_detail_response_does_not_carry_the_body(self, client, corpus, world):
+        """The preview is a separate request so detail stays small."""
+        body = "본문 문단 " * 200
+        doc, _ = corpus.document("긴 문서", chunks=[body])
+        corpus.grant(doc, user_id=world["user_a"])
+
+        detail = client.get(
+            f"/api/v1/documents/{doc}", headers=as_user(world["user_a"])
+        )
+        assert detail.status_code == 200
+        assert body not in detail.text
+        assert len(detail.content) < 4096
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from search.folder_tree import browsable_document_count, folder_tree
+from search.folder_tree import (
+    browsable_document_count, folder_tree, top_level_document_count,
+)
 
 from ..dependencies import AuthenticatedUser, connection_factory, require_user
 from ..errors import validation_error
@@ -39,6 +41,7 @@ def list_folders(
     nodes = folder_tree(factory, user.user_id)
     return FolderListResponse(
         total_documents=browsable_document_count(factory, user.user_id),
+        top_level_documents=top_level_document_count(factory, user.user_id),
         items=[
             FolderOut(
                 path=node.path,

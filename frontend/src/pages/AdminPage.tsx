@@ -52,6 +52,7 @@ export function AdminPage() {
       <h1 className="page-title">사용자 관리</h1>
       <p className="state-hint">
         승인은 로그인 허용만을 의미하며, 문서 열람 권한은 별도로 부여합니다.
+        비활성화한 계정은 <strong>활성화</strong> 버튼으로 되돌릴 수 있습니다.
       </p>
 
       {error && <ErrorView error={error} />}
@@ -109,6 +110,15 @@ function UserRow({
             승인
           </button>
         )}
+        {row.status === 'DISABLED' && (
+          // A disabled account must have a way back. Without this the row has
+          // no controls at all and the only remedy is a shell on the server --
+          // which is a long way to go for a mis-click.
+          <button type="button" className="button button-primary" disabled={busy}
+                  onClick={onApprove}>
+            활성화
+          </button>
+        )}
         {row.status === 'ACTIVE' && !isSelf && (
           // Self is excluded from both: the server refuses an administrator
           // removing their own rights, and refuses any change that would leave
@@ -119,7 +129,21 @@ function UserRow({
           </button>
         )}
         {row.status !== 'DISABLED' && !isSelf && (
-          <button type="button" className="button" disabled={busy} onClick={onDisable}>
+          // Confirmed, unlike the others. Disabling logs the person out
+          // immediately and is the one action here that takes something away
+          // -- and it sits next to buttons that do not, in a list where the
+          // rows look alike.
+          <button
+            type="button"
+            className="button button-danger"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`${row.name ?? row.login_id ?? '이 사용자'} 계정을 비활성화할까요?\n`
+                                 + '로그인이 차단되고 사용 중인 세션이 즉시 종료됩니다.')) {
+                onDisable()
+              }
+            }}
+          >
             비활성화
           </button>
         )}

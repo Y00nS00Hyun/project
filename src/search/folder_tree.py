@@ -133,6 +133,42 @@ def folder_tree(
     ]
 
 
+#: Documents in no folder at all. Counted over the same eligible set, so it is
+#: ACL-filtered exactly like everything else the tree reports.
+_TOP_LEVEL_COUNT_SQL = f"""
+SELECT count(*)
+FROM documents d
+JOIN document_revisions r
+    ON r.id = d.current_revision_id
+   AND r.document_id = d.id
+WHERE d.is_deleted = FALSE
+  AND d.current_revision_id IS NOT NULL
+  AND r.is_ready = TRUE
+  AND position('/' in d.source_path) = 0
+  AND {READ_ACL_PREDICATE}
+"""
+
+
+def top_level_document_count(
+    connection_factory: Callable[[], psycopg.Connection], user_id: str
+) -> int:
+    """Documents the caller may read that belong to no folder.
+
+    The tree cannot report these -- a document at the top contributes no folder
+    row, which is why the sidebar previously accounted for only some of what a
+    search returned.
+    """
+    if not user_id:
+        return 0
+
+    with connection_factory() as conn, conn.cursor() as cur:
+        cur.execute(
+            _TOP_LEVEL_COUNT_SQL,
+            {"user_id": user_id, "read_permissions": list(READ_PERMISSIONS)},
+        )
+        return cur.fetchone()[0]
+
+
 def browsable_document_count(
     connection_factory: Callable[[], psycopg.Connection], user_id: str
 ) -> int:

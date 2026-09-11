@@ -46,8 +46,15 @@ export function ResultCard({ item }: { item: SearchItem }) {
           </span>
         ))}
         {item.has_newer_revision && (
-          <span className="chip chip-note" title="최신 파일 버전이 아직 검색에 반영되지 않았습니다">
-            새 버전 미반영
+          // "반영 중", not "미반영". Ingestion runs on a timer, so a newer
+          // revision is on its way rather than stuck -- and the difference
+          // decides whether somebody waits a minute or goes looking for an
+          // administrator.
+          <span
+            className="chip chip-note"
+            title="최신 파일 버전을 검색에 반영하는 중입니다. 그때까지는 현재 검색 버전이 사용됩니다"
+          >
+            새 버전 반영 중
           </span>
         )}
         <Link className="button button-quiet" to={`/documents/${item.document_id}`} state={linkState}>

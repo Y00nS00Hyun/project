@@ -31,7 +31,7 @@ MAX_QUERY_CHARS = 512
 #: results that the caller believes were filtered.
 ALLOWED_PARAMS = frozenset(
     {"q", "mode", "page", "size", "department_id", "year", "tag_id", "file_type",
-     "folder_path"}
+     "folder_path", "top_level_only"}
 )
 
 
@@ -58,6 +58,13 @@ def search(
     folder_path: str | None = Query(
         None, description="공유폴더 기준 상대 경로. 해당 폴더의 하위 전체를 대상으로 한다"
     ),
+    top_level_only: bool = Query(
+        False,
+        description=(
+            "어떤 폴더에도 속하지 않는 최상위 문서만 대상으로 한다. "
+            "folder_path 와 함께 지정할 수 없다"
+        ),
+    ),
     user: AuthenticatedUser = Depends(require_user),
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
@@ -82,6 +89,7 @@ def search(
             tag_ids=tuple(tag_id),
             file_type=file_type,
             folder_path=folder_path,
+            top_level_only=top_level_only,
             page=page,
             size=size,
         )
