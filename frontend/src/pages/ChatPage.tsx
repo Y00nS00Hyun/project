@@ -91,99 +91,107 @@ export function ChatPage() {
   }, [])
 
   return (
-    <main className="page page-wide">
-      <AppNav />
-      <h1 className="page-title">AI 문서 질문</h1>
-      {/* The two question features differ in scope, and the difference decides
-          which one somebody wants. Said up front, whether or not answering is
-          currently switched on. */}
-      <p className="chat-scope-note">
-        이 화면의 질문은 등록된 여러 문서를 함께 대상으로 합니다. 특정 문서 하나에 대해
-        질문하려면 문서 상세 화면의 &lsquo;이 문서에 질문하기&rsquo;를 이용하세요.
-      </p>
+    <main className="chat-page">
+      <AppNav showBrand />
 
-      <div className="chat-layout">
-        <aside className="chat-sidebar">
-          <SessionList
-            sessions={sessions.data?.items ?? []}
-            loading={sessions.loading}
-            creating={creating}
-            onCreate={onCreate}
-            createDisabled={unavailable}
-          />
-          {sessions.error && <ErrorView error={sessions.error} />}
-          {createError && <ErrorView error={createError} />}
-        </aside>
+      <div className="chat-page-content">
+        <header className="chat-page-header">
+          <h1 className="page-title">AI 문서 질문</h1>
+          <p className="page-description">
+            등록된 여러 사내 문서를 바탕으로 질문할 수 있습니다.
+          </p>
+          {/* The two question features differ in scope, and the difference decides
+              which one somebody wants. Said up front, whether or not answering is
+              currently switched on. */}
+          <p className="chat-scope-note">
+            이 화면의 질문은 등록된 여러 문서를 함께 대상으로 합니다. 특정 문서 하나에 대해
+            질문하려면 문서 상세 화면의 &lsquo;이 문서에 질문하기&rsquo;를 이용하세요.
+          </p>
+        </header>
 
-        <section className="chat-main">
-          {unavailable && (
-            <div className="notice chat-unavailable" role="status">
-              <p>현재 AI 질의응답 기능은 비활성화되어 있습니다.</p>
-              <p>문서를 찾으시려면 문서 검색을 이용해 주세요.</p>
-              <Link className="button button-primary" to="/search">
-                문서 검색으로 이동
-              </Link>
-            </div>
-          )}
-          {!sessionId ? (
-            // With answering off there is nothing to start, so no prompt to.
-            !unavailable && (
-              <p className="state" role="status">
-                왼쪽에서 대화를 선택하거나 새 대화를 시작해 주세요.
-              </p>
-            )
-          ) : detail.error ? (
-            <SessionError error={detail.error} />
-          ) : detail.loading && !detail.data ? (
-            <LoadingState label="대화를 불러오는 중..." />
-          ) : detail.data ? (
-            <>
-              <h2 className="chat-session-title">{detail.data.title ?? '제목 없는 대화'}</h2>
+        <div className="chat-layout">
+          <aside className="chat-sidebar">
+            <SessionList
+              sessions={sessions.data?.items ?? []}
+              loading={sessions.loading}
+              creating={creating}
+              onCreate={onCreate}
+              createDisabled={unavailable}
+            />
+            {sessions.error && <ErrorView error={sessions.error} />}
+            {createError && <ErrorView error={createError} />}
+          </aside>
 
-              {detail.data.messages.items.length === 0 && !pending ? (
-                !unavailable && (
-                  <p className="state" role="status">
-                    문서에 대해 궁금한 내용을 질문해 보세요.
-                  </p>
-                )
-              ) : (
-                <ChatMessages messages={detail.data.messages.items} pending={pending} />
-              )}
-
-              {/* No streaming exists on the server, so there is no typing
-                  animation here pretending otherwise -- the whole answer
-                  appears when the response lands. */}
-              <div aria-live="polite" aria-atomic="true">
-                {sending && <LoadingState label="답변 생성 중..." />}
+          <section className="chat-main">
+            {unavailable && (
+              <div className="notice chat-unavailable" role="status">
+                <p>현재 AI 질의응답 기능은 비활성화되어 있습니다.</p>
+                <p>문서를 찾으시려면 문서 검색을 이용해 주세요.</p>
+                <Link className="button button-primary" to="/search">
+                  문서 검색으로 이동
+                </Link>
               </div>
+            )}
+            {!sessionId ? (
+              // With answering off there is nothing to start, so no prompt to.
+              !unavailable && (
+                <p className="state" role="status">
+                  왼쪽에서 대화를 선택하거나 새 대화를 시작해 주세요.
+                </p>
+              )
+            ) : detail.error ? (
+              <SessionError error={detail.error} />
+            ) : detail.loading && !detail.data ? (
+              <LoadingState label="대화를 불러오는 중..." />
+            ) : detail.data ? (
+              <>
+                <h2 className="chat-session-title">{detail.data.title ?? '제목 없는 대화'}</h2>
 
-              {sendError && (
-                <div className="state state-error" role="alert">
-                  <p className="state-message">{sendError.message}</p>
-                  {sendError.requestId && (
-                    <p className="request-id">문제 신고 번호: {sendError.requestId}</p>
-                  )}
-                  <p className="chat-retry-row">
-                    <button className="button button-quiet" type="button" onClick={onRetry} disabled={sending}>
-                      다시 시도
-                    </button>
-                    <button className="button button-quiet" type="button" onClick={onDismiss} disabled={sending}>
-                      취소하고 새로고침
-                    </button>
-                  </p>
+                {detail.data.messages.items.length === 0 && !pending ? (
+                  !unavailable && (
+                    <p className="state" role="status">
+                      문서에 대해 궁금한 내용을 질문해 보세요.
+                    </p>
+                  )
+                ) : (
+                  <ChatMessages messages={detail.data.messages.items} pending={pending} />
+                )}
+
+                {/* No streaming exists on the server, so there is no typing
+                    animation here pretending otherwise -- the whole answer
+                    appears when the response lands. */}
+                <div aria-live="polite" aria-atomic="true">
+                  {sending && <LoadingState label="답변 생성 중..." />}
                 </div>
-              )}
 
-              {/* Earlier conversations stay readable; only asking is off. */}
-              <ChatComposer
-                onSend={onSend}
-                sending={sending}
-                disabled={unavailable}
-                placeholder={unavailable ? '현재 AI 질의응답 기능은 비활성화되어 있습니다.' : undefined}
-              />
-            </>
-          ) : null}
-        </section>
+                {sendError && (
+                  <div className="state state-error" role="alert">
+                    <p className="state-message">{sendError.message}</p>
+                    {sendError.requestId && (
+                      <p className="request-id">문제 신고 번호: {sendError.requestId}</p>
+                    )}
+                    <p className="chat-retry-row">
+                      <button className="button button-quiet" type="button" onClick={onRetry} disabled={sending}>
+                        다시 시도
+                      </button>
+                      <button className="button button-quiet" type="button" onClick={onDismiss} disabled={sending}>
+                        취소하고 새로고침
+                      </button>
+                    </p>
+                  </div>
+                )}
+
+                {/* Earlier conversations stay readable; only asking is off. */}
+                <ChatComposer
+                  onSend={onSend}
+                  sending={sending}
+                  disabled={unavailable}
+                  placeholder={unavailable ? '현재 AI 질의응답 기능은 비활성화되어 있습니다.' : undefined}
+                />
+              </>
+            ) : null}
+          </section>
+        </div>
       </div>
     </main>
   )
