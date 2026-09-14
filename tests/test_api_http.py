@@ -800,6 +800,89 @@ class TestTextPreview:
 
 
 # ---------------------------------------------------------------------------
+# Revision comparison
+# ---------------------------------------------------------------------------
+
+class TestRevisionDiff:
+    """GET /documents/{id}/diff: current revision vs the nearest earlier text."""
+
+    def diff(self, client, document_id, user_id):
+        return client.get(f"/api/v1/documents/{document_id}/diff", headers=as_user(user_id))
+
+    def test_a_single_revision_is_not_comparable(self, client, corpus, world):
+        doc, _ = corpus.document("단일 버전", text="[문단]\nA")
+        corpus.grant(doc, user_id=world["user_a"])
+        body = self.diff(client, doc, world["user_a"]).json()
+        assert body["comparable"] is False and body["base"] is None
+
+    def test_two_revisions_compare_previous_to_current(self, client, corpus, world):
+        doc, _ = corpus.document("두 버전", text="[문단]\nA\n[문단]\nB")
+        corpus.revision(doc, 2, text="[문단]\nA\n[문단]\nC")
+        corpus.grant(doc, user_id=world["user_a"])
+
+        body = self.diff(client, doc, world["user_a"]).json()
+        assert body["comparable"] is True
+        assert (body["base"]["revision_no"], body["target"]["revision_no"]) == (1, 2)
+        assert body["added"] == ["C"] and body["removed"] == ["B"]
+        assert body["identical"] is False
+
+    def test_three_revisions_use_the_nearest_earlier_one(self, client, corpus, world):
+        doc, _ = corpus.document("세 버전", text="[문단]\n처음")
+        corpus.revision(doc, 2, text="[문단]\n둘째")
+        corpus.revision(doc, 3, text="[문단]\n셋째")
+        corpus.grant(doc, user_id=world["user_a"])
+        body = self.diff(client, doc, world["user_a"]).json()
+        assert (body["base"]["revision_no"], body["target"]["revision_no"]) == (2, 3)
+
+    def test_a_middle_revision_without_text_is_skipped(self, client, corpus, conn, world):
+        doc, _ = corpus.document("텍스트 없는 중간", text="[문단]\n처음")
+        middle = corpus.revision(doc, 2, text="[문단]\n둘째")
+        corpus.revision(doc, 3, text="[문단]\n셋째")
+        with conn.cursor() as cur:
+            cur.execute("UPDATE document_revisions SET extracted_text = NULL WHERE id = %s", (middle,))
+        corpus.grant(doc, user_id=world["user_a"])
+        body = self.diff(client, doc, world["user_a"]).json()
+        assert (body["base"]["revision_no"], body["target"]["revision_no"]) == (1, 3)
+
+    def test_identical_text_reports_no_change(self, client, corpus, world):
+        doc, _ = corpus.document("같은 내용", text="[문단]\nA")
+        corpus.revision(doc, 2, text="[문단]\nA")
+        corpus.grant(doc, user_id=world["user_a"])
+        body = self.diff(client, doc, world["user_a"]).json()
+        assert body["comparable"] is True and body["identical"] is True
+        assert body["added"] == [] and body["removed"] == []
+
+    def test_a_processing_latest_revision_is_not_compared(self, client, corpus, world):
+        doc, _ = corpus.document("처리 중 최신", text="[문단]\nA")
+        corpus.revision(doc, 2, text="[문단]\nB")
+        corpus.revision(doc, 3, text="[문단]\n아직 처리 중", ready=False, promote=False)
+        corpus.grant(doc, user_id=world["user_a"])
+        body = self.diff(client, doc, world["user_a"]).json()
+        assert (body["base"]["revision_no"], body["target"]["revision_no"]) == (1, 2)
+        assert "아직 처리 중" not in str(body)
+
+    def test_an_unpermitted_reader_learns_nothing(self, client, corpus, world):
+        doc, _ = corpus.document("남의 문서", text="[문단]\n기밀 A")
+        corpus.revision(doc, 2, text="[문단]\n기밀 B")
+        corpus.grant(doc, user_id=world["user_b"])
+        response = self.diff(client, doc, world["user_a"])
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "DOCUMENT_NOT_FOUND"
+        assert "기밀" not in response.text
+
+    def test_requires_authentication(self, client, world):
+        assert client.get(f"/api/v1/documents/{world['doc1']}/diff").status_code == 401
+
+    def test_rejects_parameters(self, client, corpus, world):
+        doc, _ = corpus.document("파라미터", text="[문단]\nA")
+        corpus.grant(doc, user_id=world["user_a"])
+        response = client.get(
+            f"/api/v1/documents/{doc}/diff?base=1", headers=as_user(world["user_a"])
+        )
+        assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Metadata
 # ---------------------------------------------------------------------------
 

@@ -20,6 +20,8 @@ from ingestion.path_encoding import display_name
 from rag.models import source_anchor
 from search.repository import READ_PERMISSIONS, READ_ACL_PREDICATE as _ACL_PREDICATE
 
+from .revision_diff import paragraph_diff
+
 @dataclass(frozen=True)
 class DownloadTarget:
     """Everything needed to serve a file, resolved after the ACL check."""
@@ -166,6 +168,76 @@ class DocumentService:
             "offset": offset,
             "total": total,
             "has_more": offset + len(rows) < total,
+        }
+
+    def revision_diff(self, user_id: str, document_id: str, max_items: int) -> dict[str, Any]:
+        """Compare the current revision with the nearest earlier one that has text.
+
+        * Base is the current revision -- what search serves. A newer revision
+          still being processed has a higher revision_no and is never chosen.
+        * The other side is the closest earlier revision whose extracted text
+          exists, skipping any in between that produced none.
+        * Nothing is re-parsed or re-embedded; stored text is compared.
+
+        ACL is checked on the document first. A reader without permission gets
+        the same DocumentNotVisible as for detail, so not even the existence of
+        earlier revisions is disclosed.
+        """
+        row = self._visible_document(user_id, document_id)
+        not_comparable = {
+            "comparable": False, "base": None, "target": None, "identical": False,
+            "added": [], "removed": [], "added_total": 0, "removed_total": 0,
+            "truncated": False,
+        }
+        if row["current_revision_id"] is None:
+            return not_comparable
+
+        with self.conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, revision_no, created_at, extracted_text
+                FROM document_revisions
+                WHERE id = %s AND document_id = %s AND is_ready = TRUE
+                """,
+                (row["current_revision_id"], row["id"]),
+            )
+            target = cur.fetchone()
+            if target is None or target["extracted_text"] is None:
+                return not_comparable
+            cur.execute(
+                """
+                SELECT id, revision_no, created_at, extracted_text
+                FROM document_revisions
+                WHERE document_id = %s
+                  AND revision_no < %s
+                  AND extracted_text IS NOT NULL
+                ORDER BY revision_no DESC
+                LIMIT 1
+                """,
+                (row["id"], target["revision_no"]),
+            )
+            base = cur.fetchone()
+        if base is None:
+            return not_comparable
+
+        added, removed = paragraph_diff(base["extracted_text"], target["extracted_text"])
+
+        def ref(revision: dict[str, Any]) -> dict[str, Any]:
+            return {"revision_id": str(revision["id"]), "revision_no": revision["revision_no"],
+                    "created_at": revision["created_at"]}
+
+        return {
+            "comparable": True,
+            "base": ref(base),
+            "target": ref(target),
+            "identical": not added and not removed,
+            # Bounded so one heavily rewritten document cannot produce a
+            # response the page has to render in full; totals stay exact.
+            "added": added[:max_items],
+            "removed": removed[:max_items],
+            "added_total": len(added),
+            "removed_total": len(removed),
+            "truncated": len(added) > max_items or len(removed) > max_items,
         }
 
     def _ready_chunk_count(self, revision_id: str) -> int:

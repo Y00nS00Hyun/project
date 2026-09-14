@@ -4,6 +4,7 @@ import { ApiClientError } from '../api/client'
 import { downloadDocument, fetchDocument, fetchRevisions } from '../api/documents'
 import { DocumentChat } from '../components/DocumentChat'
 import { DocumentSummary } from '../components/DocumentSummary'
+import { RevisionDiff } from '../components/RevisionDiff'
 import { RevisionList } from '../components/RevisionList'
 import { TextPreview } from '../components/TextPreview'
 import { Pagination } from '../components/Pagination'
@@ -30,6 +31,14 @@ function DocumentContent({ documentId }: { documentId: string }) {
     [documentId, revisionPage],
     Boolean(documentId),
   )
+
+  // Use the full history count; /diff decides whether a comparable base exists.
+  // Remember it so paging through history does not reset the loaded comparison.
+  const [diffAvailable, setDiffAvailable] = useState(false)
+  useEffect(() => {
+    const history = revisions.data
+    if (history) setDiffAvailable(history.total >= 2)
+  }, [revisions.data])
 
   const [downloadError, setDownloadError] = useState<ApiClientError | null>(null)
   const [downloading, setDownloading] = useState(false)
@@ -257,6 +266,8 @@ function DocumentContent({ documentId }: { documentId: string }) {
           )}
         </section>
       ) : null}
+
+      {diffAvailable && <RevisionDiff documentId={doc.document_id} />}
     </main>
   )
 }

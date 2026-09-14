@@ -58,6 +58,8 @@ PREVIEW_ROUTES = {
     ("GET", f"{API_PREFIX}/documents/{{document_id}}/text"),
     # The year filter's choices, from the documents the caller may search.
     ("GET", f"{API_PREFIX}/search/years"),
+    # Paragraph-level changes against the previous revision, fetched on demand.
+    ("GET", f"{API_PREFIX}/documents/{{document_id}}/diff"),
 }
 
 ALL_ROUTES = EXPECTED_ROUTES | AUTH_ROUTES | PREVIEW_ROUTES
@@ -443,8 +445,9 @@ class TestFolderContract:
         }
         assert v1_routes <= actual
         # 11 through v1.2, the eleven v1.3 authentication routes, the
-        # extracted-text preview, and the year filter's choices.
-        assert len(actual) == len(ALL_ROUTES) == 24
+        # extracted-text preview, the year filter's choices, and the revision
+        # comparison.
+        assert len(actual) == len(ALL_ROUTES) == 25
 
     def test_a_folder_carries_a_canonical_path_and_a_display_name(self, spec):
         """Separate fields, because for a legacy folder they differ entirely.

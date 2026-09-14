@@ -611,3 +611,124 @@ describe('DocumentPage dates', () => {
     expect(within(modified).getByText('알 수 없음')).toBeInTheDocument()
   })
 })
+
+describe('DocumentPage revision diff', () => {
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  const PREVIOUS = makeRevision({ revision_id: 'rev-1', revision_no: 1, is_current: false })
+  const DIFF = {
+    comparable: true,
+    base: { revision_id: 'rev-1', revision_no: 1, created_at: '2026-08-01T00:00:00Z' },
+    target: { revision_id: 'rev-2', revision_no: 2, created_at: '2026-08-30T04:12:00Z' },
+    identical: false,
+    added: ['총 사업비는 4억 원이다.'],
+    removed: ['총 사업비는 3억 원이다.'],
+    added_total: 1,
+    removed_total: 1,
+    truncated: false,
+  }
+
+  function stub(revisions: unknown[], diff: unknown = DIFF, total = revisions.length) {
+    vi.stubGlobal('fetch', mockFetch({
+      ...NO_CHAT_SESSIONS,
+      '/api/v1/documents/doc-1/diff': diff,
+      '/api/v1/documents/doc-1/revisions': { items: revisions, page: 1, size: 20, total },
+      '/api/v1/documents/doc-1': makeDetail(),
+    }))
+  }
+
+  function diffCalls() {
+    return vi.mocked(fetch).mock.calls.map((c) => String(c[0])).filter((u) => u.includes('/diff'))
+  }
+
+  const toggle = () => screen.queryByRole('button', { name: /이전 버전과 변경사항 보기/ })
+
+  it('is not offered for a document with a single revision', async () => {
+    stub([makeRevision()])
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await screen.findByRole('heading', { name: makeDetail().title })
+    expect(toggle()).not.toBeInTheDocument()
+  })
+
+  it('shows the API explanation when no earlier revision has extracted text', async () => {
+    stub([makeRevision(), makeRevision({
+      revision_id: 'rev-1', revision_no: 1, is_current: false, parse_result_code: 'OCR_REQUIRED',
+    })], { ...DIFF, comparable: false, base: null, identical: false,
+      added: [], removed: [], added_total: 0, removed_total: 0 })
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    const button = await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ })
+    expect(diffCalls()).toEqual([])
+    await userEvent.click(button)
+    expect(await screen.findByText('비교 가능한 이전 버전이 없습니다.')).toBeInTheDocument()
+    expect(screen.getByText(/추출된 텍스트를 기준으로 비교합니다/)).toBeInTheDocument()
+    expect(screen.queryByText('추출 텍스트 기준 변경사항이 없습니다.')).not.toBeInTheDocument()
+    await userEvent.click(button)
+    await userEvent.click(button)
+    expect(await screen.findByText('비교 가능한 이전 버전이 없습니다.')).toBeInTheDocument()
+    expect(diffCalls()).toHaveLength(1)
+  })
+
+  it('offers comparison using the total even when earlier revisions are outside the first page', async () => {
+    stub([makeRevision()], DIFF, 21)
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    const button = await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(diffCalls()).toEqual([])
+    await userEvent.click(button)
+    expect(await screen.findByText('Rev 1 → Rev 2')).toBeInTheDocument()
+    expect(diffCalls()).toEqual(['/api/v1/documents/doc-1/diff'])
+    expect(vi.mocked(fetch).mock.calls.filter((call) =>
+      String(call[0]).includes('/revisions'))).toHaveLength(1)
+  })
+
+  it('is collapsed and fetches nothing until opened', async () => {
+    stub([makeRevision(), PREVIOUS])
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    const button = await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(diffCalls()).toEqual([])
+  })
+
+  it('shows the revisions compared, the notice, and added and removed paragraphs', async () => {
+    stub([makeRevision(), PREVIOUS])
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await userEvent.click(await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ }))
+
+    expect(await screen.findByText('Rev 1 → Rev 2')).toBeInTheDocument()
+    expect(screen.getByText(/추출된 텍스트를 기준으로 비교합니다/)).toBeInTheDocument()
+    expect(screen.getByText('추가된 내용 (1)')).toBeInTheDocument()
+    expect(screen.getByText('총 사업비는 4억 원이다.')).toBeInTheDocument()
+    expect(screen.getByText('삭제된 내용 (1)')).toBeInTheDocument()
+    expect(screen.getByText('총 사업비는 3억 원이다.')).toBeInTheDocument()
+    expect(diffCalls()).toEqual(['/api/v1/documents/doc-1/diff'])
+  })
+
+  it('says so when the extracted text did not change', async () => {
+    stub([makeRevision(), PREVIOUS], { ...DIFF, identical: true, added: [], removed: [],
+      added_total: 0, removed_total: 0 })
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await userEvent.click(await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ }))
+    expect(await screen.findByText('추출 텍스트 기준 변경사항이 없습니다.')).toBeInTheDocument()
+  })
+
+  it('reports a refusal instead of an empty comparison', async () => {
+    stub([makeRevision(), PREVIOUS], () =>
+      errorResponse('DOCUMENT_NOT_FOUND', '문서를 찾을 수 없습니다.', 404))
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await userEvent.click(await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('문서를 찾을 수 없습니다.')
+  })
+
+  it('does not fetch again when collapsed and reopened', async () => {
+    stub([makeRevision(), PREVIOUS])
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    const button = await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ })
+    await userEvent.click(button)
+    await screen.findByText('Rev 1 → Rev 2')
+    await userEvent.click(button)
+    await userEvent.click(button)
+    expect(await screen.findByText('Rev 1 → Rev 2')).toBeInTheDocument()
+    expect(diffCalls()).toHaveLength(1)
+  })
+})

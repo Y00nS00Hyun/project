@@ -403,3 +403,19 @@ export interface TextPreviewResponse {
 export interface YearListResponse {
   years: number[]
 }
+
+/**
+ * GET /documents/{id}/diff: paragraph-level changes, current vs the nearest
+ * earlier revision that has extracted text. `base` is the older one.
+ */
+export interface RevisionDiffResponse {
+  comparable: boolean
+  base: RevisionRef | null
+  target: RevisionRef | null
+  identical: boolean
+  added: string[]
+  removed: string[]
+  added_total: number
+  removed_total: number
+  truncated: boolean
+}

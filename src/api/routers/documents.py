@@ -22,6 +22,7 @@ from ..errors import document_not_found, not_downloadable, validation_error
 from ..schemas.documents import (
     DocumentDetailOut,
     RevisionListResponse,
+    RevisionDiffResponse,
     RevisionOut,
     TextPreviewResponse,
 )
@@ -130,6 +131,42 @@ def preview_text(
     # Deliberately not logged. The one thing this endpoint returns is document
     # body text, and a log line is the easiest place for it to escape.
     return TextPreviewResponse(**payload)
+
+
+#: Per side. Enough for any document in the current corpus to be read in full;
+#: a rewrite larger than this is reported as truncated with exact totals.
+MAX_DIFF_ITEMS = 200
+
+
+@router.get(
+    "/{document_id}/diff",
+    response_model=RevisionDiffResponse,
+    summary="이전 버전과 변경사항 비교",
+)
+def revision_diff(
+    request: Request,
+    document_id: str,
+    user: AuthenticatedUser = Depends(require_user),
+    conn: psycopg.Connection = Depends(get_connection),
+) -> RevisionDiffResponse:
+    """Current revision against the nearest earlier revision that has text.
+
+    Lazy: fetched only when a reader opens the comparison, never part of the
+    detail response. Stored extracted text only -- nothing is re-parsed, and
+    nothing reaches an LLM.
+    """
+    unknown = sorted(request.query_params.keys())
+    if unknown:
+        raise validation_error(
+            "알 수 없는 query parameter가 있습니다.",
+            [{"field": name, "reason": "지원하지 않는 parameter입니다."} for name in unknown],
+        )
+    try:
+        payload = _service(conn).revision_diff(user.user_id, document_id, MAX_DIFF_ITEMS)
+    except DocumentNotVisible as exc:
+        raise document_not_found() from exc
+    # Not logged: the payload is document body text.
+    return RevisionDiffResponse(**payload)
 
 
 @router.get("/{document_id}/download", summary="원본 다운로드")

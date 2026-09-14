@@ -1,6 +1,7 @@
 import { getFile, getJson, type DownloadedFile, type RequestOptions } from './client'
 import type {
   DocumentDetail,
+  RevisionDiffResponse,
   RevisionListResponse,
   TextPreviewResponse,
 } from './types'
@@ -69,4 +70,12 @@ export function fetchDocumentText(
     `/documents/${encodeURIComponent(documentId)}/text`,
     { ...options, params: { offset, limit } },
   )
+}
+
+/** Changes against the previous revision. Fetched only when a reader opens it. */
+export function fetchDocumentDiff(
+  documentId: string,
+  options: RequestOptions = {},
+): Promise<RevisionDiffResponse> {
+  return getJson<RevisionDiffResponse>(`/documents/${encodeURIComponent(documentId)}/diff`, options)
 }

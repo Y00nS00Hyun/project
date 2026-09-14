@@ -637,3 +637,17 @@ select:focus-visible {
 .chat-unavailable { margin: 0 0 16px; }
 .chat-unavailable p { margin: 0 0 4px; }
 .chat-unavailable .button { display: inline-block; margin-top: 8px; text-decoration: none; }
+
+/* Revision comparison. Bounded height: a long diff scrolls inside its box. */
+.revision-diff { border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.75rem 1rem; }
+.diff-range { margin: 0 0 0.5rem; font-weight: 600; }
+.diff-title { margin: 0.75rem 0 0.35rem; font-size: 0.9rem; }
+.diff-list { list-style: none; margin: 0; padding: 0; max-height: 22rem; overflow-y: auto; }
+.diff-list li { display: flex; gap: 0.5rem; padding: 0.25rem 0.5rem; border-radius: 4px;
+  font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; }
+.diff-list li + li { margin-top: 2px; }
+.diff-added .diff-list li { background: #eaf6ec; }
+.diff-removed .diff-list li { background: #fbecec; }
+.diff-sign { font-family: monospace; font-weight: 700; flex: none; }
+.diff-added .diff-sign { color: #1e7b34; }
+.diff-removed .diff-sign { color: #b3261e; }

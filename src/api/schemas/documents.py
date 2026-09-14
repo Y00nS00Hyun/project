@@ -171,3 +171,24 @@ class TextPreviewResponse(BaseModel):
     offset: int = 0
     total: int = 0
     has_more: bool = False
+
+
+class RevisionDiffResponse(BaseModel):
+    """Paragraph-level changes between the current revision and the one before it.
+
+    Compares extracted text, not the original file: formatting, layout and
+    image changes are not represented. ``base`` is the older revision and
+    ``target`` the current one. When no earlier revision with text exists,
+    ``comparable`` is false and everything else is empty.
+    """
+
+    comparable: bool
+    base: RevisionRef | None = None
+    target: RevisionRef | None = None
+    identical: bool = False
+    added: list[str] = []
+    removed: list[str] = []
+    added_total: int = 0
+    removed_total: int = 0
+    #: True when either list was cut to the response limit; totals are exact.
+    truncated: bool = False
