@@ -631,3 +631,9 @@ select:focus-visible {
 /* The admin list filter sits between the explanation and the table. */
 .admin-filter { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
 .admin-filter label { cursor: pointer; }
+
+/* AI question page: scope of the page, and the notice shown when answering is off. */
+.chat-scope-note { margin: -4px 0 16px; font-size: 13px; color: var(--muted); }
+.chat-unavailable { margin: 0 0 16px; }
+.chat-unavailable p { margin: 0 0 4px; }
+.chat-unavailable .button { display: inline-block; margin-top: 8px; text-decoration: none; }

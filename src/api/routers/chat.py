@@ -9,6 +9,7 @@ from rag.exceptions import (
     DocumentScopeNotFound, GenerationDisabled, GenerationRateLimited,
     GenerationUnavailable, SessionNotFound,
 )
+from rag.provider import document_generation_enabled
 from rag.service import ChatService, RagService
 
 from ..dependencies import AuthenticatedUser, get_chat_service, get_rag_service, require_user
@@ -88,7 +89,11 @@ def list_sessions(
     service: ChatService = Depends(get_chat_service),
 ):
     _parameters(request, {'page', 'size'})
-    return _call(request, lambda: service.list_sessions(user.user_id, page, size))
+    listing = _call(request, lambda: service.list_sessions(user.user_id, page, size))
+    # Read-only. Exactly the check send_message makes before it would refuse
+    # with FEATURE_UNAVAILABLE, reported ahead of time; nothing about sessions,
+    # retrieval or generation changes.
+    return {**listing, 'chat': {'available': document_generation_enabled()}}
 
 
 @router.get('/{session_id}', response_model=SessionDetail, summary='채팅 세션과 메시지')

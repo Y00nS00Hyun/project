@@ -237,6 +237,8 @@ export interface ChatSessionListResponse {
   page: number
   size: number
   total: number
+  /** Whether questions can be answered at all; same gate as the document page. */
+  chat: ChatCapability
 }
 
 /**
@@ -395,4 +397,9 @@ export interface TextPreviewResponse {
   offset: number
   total: number
   has_more: boolean
+}
+
+/** GET /search/years: years carried by documents the caller may search, newest first. */
+export interface YearListResponse {
+  years: number[]
 }

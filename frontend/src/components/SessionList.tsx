@@ -14,11 +14,14 @@ export function SessionList({
   loading,
   creating,
   onCreate,
+  createDisabled = false,
 }: {
   sessions: ChatSessionSummary[]
   loading: boolean
   creating: boolean
   onCreate: () => void
+  /** No new conversation can be answered, so none should be opened. */
+  createDisabled?: boolean
 }) {
   return (
     <>
@@ -26,7 +29,7 @@ export function SessionList({
         className="button button-primary chat-new-button"
         type="button"
         onClick={onCreate}
-        disabled={creating}
+        disabled={creating || createDisabled}
       >
         {creating ? '만드는 중...' : '+ 새 대화'}
       </button>

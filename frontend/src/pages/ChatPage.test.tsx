@@ -66,8 +66,8 @@ function stubChat(stubs: ChatStubs) {
   return calls
 }
 
-function page(items: ChatSessionSummary[]) {
-  return { items, page: 1, size: 20, total: items.length }
+function page(items: ChatSessionSummary[], available = true) {
+  return { items, page: 1, size: 20, total: items.length, chat: { available } }
 }
 
 function renderChat(path = '/chat/ses-1') {
@@ -541,5 +541,69 @@ describe('ChatPage · safety', () => {
       expect(call.url.startsWith('/api/v1/')).toBe(true)
       expect(call.url).not.toMatch(/^[a-z]+:\/\//i)
     }
+  })
+})
+
+describe('ChatPage · provider unavailable', () => {
+  const NOTICE = '현재 AI 질의응답 기능은 비활성화되어 있습니다.'
+
+  it('disables + 새 대화 and creates no empty session', async () => {
+    const calls = stubChat({ sessions: () => jsonResponse(page([], false)) })
+    renderChat('/chat')
+
+    const button = await screen.findByRole('button', { name: '+ 새 대화' })
+    await waitFor(() => expect(button).toBeDisabled())
+    await userEvent.click(button)
+
+    // Nothing was created: no POST reached the server at all.
+    expect(calls.filter((call) => call.method === 'POST')).toEqual([])
+  })
+
+  it('explains the state and offers a way to document search', async () => {
+    stubChat({ sessions: () => jsonResponse(page([], false)) })
+    renderChat('/chat')
+
+    expect(await screen.findByText(NOTICE)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '문서 검색으로 이동' })).toHaveAttribute('href', '/search')
+    // No prompt to start something that cannot be started.
+    expect(screen.queryByText(/새 대화를 시작해 주세요/)).not.toBeInTheDocument()
+  })
+
+  it('keeps earlier conversations readable but does not let anyone ask', async () => {
+    const calls = stubChat({ sessions: () => jsonResponse(page([makeSession()], false)) })
+    renderChat('/chat/ses-1')
+
+    expect(await screen.findByText('총 사업비는 3억 원입니다.')).toBeInTheDocument()
+    await screen.findByText(NOTICE)
+    const box = screen.getByRole('textbox')
+    await waitFor(() => expect(box).toBeDisabled())
+    expect(box).toHaveAttribute('placeholder', NOTICE)
+    expect(calls.some((call) => call.url.endsWith('/messages'))).toBe(false)
+  })
+
+  it('shows no mock answer or fake assistant turn', async () => {
+    stubChat({ sessions: () => jsonResponse(page([], false)) })
+    const { container } = renderChat('/chat')
+    await screen.findByText(NOTICE)
+    expect(screen.queryByText('답변 생성 중...')).not.toBeInTheDocument()
+    expect(container.querySelector('.chat-bubble')).toBeNull()
+  })
+})
+
+describe('ChatPage · scope note', () => {
+  it('says this page asks across documents and where single-document questions go', async () => {
+    stubChat({})
+    renderChat('/chat')
+    expect(await screen.findByText(/여러 문서를 함께 대상으로/)).toBeInTheDocument()
+    expect(screen.getByText(/문서 상세 화면의 ‘이 문서에 질문하기’/)).toBeInTheDocument()
+  })
+
+  it('leaves the page as before when answering is available', async () => {
+    stubChat({})
+    renderChat('/chat')
+    const button = await screen.findByRole('button', { name: '+ 새 대화' })
+    expect(button).toBeEnabled()
+    expect(screen.queryByText('현재 AI 질의응답 기능은 비활성화되어 있습니다.')).not.toBeInTheDocument()
+    expect(screen.getByText(/새 대화를 시작해 주세요/)).toBeInTheDocument()
   })
 })

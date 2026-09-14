@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiClientError } from '../api/client'
 import { createSession, fetchSession, fetchSessions, sendMessage } from '../api/chat'
 import { AppNav } from '../components/AppNav'
@@ -29,8 +29,14 @@ export function ChatPage() {
     Boolean(sessionId),
   )
 
+  // Known false only once the server has said so. While the list is loading,
+  // or if it failed, the page behaves as it always has rather than guessing.
+  const unavailable = sessions.data?.chat?.available === false
+
   const onCreate = useCallback(async () => {
-    if (creating) return
+    // A conversation nobody can get an answer in is an empty row in the list
+    // and nothing else. The button is disabled too; this is the guarantee.
+    if (creating || unavailable) return
     setCreating(true)
     setCreateError(null)
     try {
@@ -43,12 +49,12 @@ export function ChatPage() {
     } finally {
       setCreating(false)
     }
-  }, [creating, navigate])
+  }, [creating, unavailable, navigate])
 
   const onSend = useCallback(
     async (message: string): Promise<boolean> => {
       // Second guard against a double submit; the button is disabled too.
-      if (!sessionId || sending) return false
+      if (!sessionId || sending || unavailable) return false
       setSending(true)
       setSendError(null)
       setPending({ text: message, failed: false })
@@ -70,7 +76,7 @@ export function ChatPage() {
         setSending(false)
       }
     },
-    [sessionId, sending],
+    [sessionId, sending, unavailable],
   )
 
   const onRetry = useCallback(() => {
@@ -88,6 +94,13 @@ export function ChatPage() {
     <main className="page page-wide">
       <AppNav />
       <h1 className="page-title">AI 문서 질문</h1>
+      {/* The two question features differ in scope, and the difference decides
+          which one somebody wants. Said up front, whether or not answering is
+          currently switched on. */}
+      <p className="chat-scope-note">
+        이 화면의 질문은 등록된 여러 문서를 함께 대상으로 합니다. 특정 문서 하나에 대해
+        질문하려면 문서 상세 화면의 &lsquo;이 문서에 질문하기&rsquo;를 이용하세요.
+      </p>
 
       <div className="chat-layout">
         <aside className="chat-sidebar">
@@ -96,16 +109,29 @@ export function ChatPage() {
             loading={sessions.loading}
             creating={creating}
             onCreate={onCreate}
+            createDisabled={unavailable}
           />
           {sessions.error && <ErrorView error={sessions.error} />}
           {createError && <ErrorView error={createError} />}
         </aside>
 
         <section className="chat-main">
+          {unavailable && (
+            <div className="notice chat-unavailable" role="status">
+              <p>현재 AI 질의응답 기능은 비활성화되어 있습니다.</p>
+              <p>문서를 찾으시려면 문서 검색을 이용해 주세요.</p>
+              <Link className="button button-primary" to="/search">
+                문서 검색으로 이동
+              </Link>
+            </div>
+          )}
           {!sessionId ? (
-            <p className="state" role="status">
-              왼쪽에서 대화를 선택하거나 새 대화를 시작해 주세요.
-            </p>
+            // With answering off there is nothing to start, so no prompt to.
+            !unavailable && (
+              <p className="state" role="status">
+                왼쪽에서 대화를 선택하거나 새 대화를 시작해 주세요.
+              </p>
+            )
           ) : detail.error ? (
             <SessionError error={detail.error} />
           ) : detail.loading && !detail.data ? (
@@ -115,9 +141,11 @@ export function ChatPage() {
               <h2 className="chat-session-title">{detail.data.title ?? '제목 없는 대화'}</h2>
 
               {detail.data.messages.items.length === 0 && !pending ? (
-                <p className="state" role="status">
-                  문서에 대해 궁금한 내용을 질문해 보세요.
-                </p>
+                !unavailable && (
+                  <p className="state" role="status">
+                    문서에 대해 궁금한 내용을 질문해 보세요.
+                  </p>
+                )
               ) : (
                 <ChatMessages messages={detail.data.messages.items} pending={pending} />
               )}
@@ -146,7 +174,13 @@ export function ChatPage() {
                 </div>
               )}
 
-              <ChatComposer onSend={onSend} sending={sending} />
+              {/* Earlier conversations stay readable; only asking is off. */}
+              <ChatComposer
+                onSend={onSend}
+                sending={sending}
+                disabled={unavailable}
+                placeholder={unavailable ? '현재 AI 질의응답 기능은 비활성화되어 있습니다.' : undefined}
+              />
             </>
           ) : null}
         </section>

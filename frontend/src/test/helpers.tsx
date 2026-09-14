@@ -85,7 +85,7 @@ export const SIGNED_IN_ADMIN = {
 }
 
 export const NO_CHAT_SESSIONS = {
-  '/api/v1/chat/sessions': { items: [], page: 1, size: 20, total: 0 },
+  '/api/v1/chat/sessions': { items: [], page: 1, size: 20, total: 0, chat: { available: true } },
 }
 
 export function jsonResponse(body: unknown, status = 200): Response {
@@ -109,6 +109,9 @@ export const FOLDERS = [
 ]
 
 export const emptyMetadata = {
+  // Must precede any '/api/v1/search' stub: mockFetch matches by prefix, in
+  // key order, and spreading this object first keeps the years call its own.
+  '/api/v1/search/years': { years: [2026, 2025, 2017] },
   '/api/v1/folders': { items: FOLDERS },
   '/api/v1/departments': { items: [{ id: 'dep-1', name: '기획조정실' }] },
   // The real GET /tags returns document kinds and free-form tags together;

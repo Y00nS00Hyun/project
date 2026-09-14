@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { fetchFolders } from '../api/folders'
 import { fetchTags } from '../api/metadata'
-import { searchDocuments } from '../api/search'
+import { fetchSearchYears, searchDocuments } from '../api/search'
 import { AppNav } from '../components/AppNav'
 import { Filters } from '../components/Filters'
 import { FolderTree, TOP_LEVEL_LABEL } from '../components/FolderTree'
@@ -31,6 +31,12 @@ export function SearchPage() {
   // change shape when the user picks a year or a document kind, or a folder
   // would vanish while they were looking at it.
   const folders = useAsyncResource((signal) => fetchFolders({ signal }), [])
+
+  // The year filter's choices. Like the tree, fetched once and unaffected by the
+  // other filters. If it fails, the dropdown keeps 전체 (and any year already in
+  // the URL) and the rest of the page is untouched.
+  const years = useAsyncResource((signal) => fetchSearchYears({ signal }), [])
+  const yearList = Array.isArray(years.data?.years) ? years.data.years : []
 
   const results = useAsyncResource(
     (signal) =>
@@ -118,6 +124,7 @@ export function SearchPage() {
         state={state}
         tags={tags.data?.items ?? []}
         tagsLoading={tags.loading}
+        years={yearList}
         onChange={update}
       />
 

@@ -621,6 +621,25 @@ class SearchRepository:
         total = rows[0]["total_count"] if rows else 0
         return rows, int(total)
 
+    def available_years(self, user_id: str) -> list[int]:
+        """Distinct document years among documents this user may search, newest first.
+
+        Built on ELIGIBLE_CTE with no filters -- the same ACL, not-deleted and
+        current-READY conditions every search runs through -- so the list can
+        never contain a year that exists only in a document the caller cannot
+        read. A year's presence in the list would otherwise disclose that such
+        a document exists.
+        """
+        sql = (
+            f"WITH {ELIGIBLE_CTE} "
+            "SELECT DISTINCT document_year FROM eligible "
+            "WHERE document_year IS NOT NULL ORDER BY document_year DESC"
+        )
+        params = _base_params(user_id, None, None, ())
+        with self.conn.cursor() as cur:
+            cur.execute(sql, params)
+            return [int(row[0]) for row in cur.fetchall()]
+
     def accessible_document_ids(self, user_id: str) -> set[str]:
         """Documents the user may read. Used by tests to assert the invariant."""
         sql = f"WITH {ELIGIBLE_CTE} SELECT document_id FROM eligible"

@@ -1,5 +1,5 @@
 import { getJson, type RequestOptions } from './client'
-import type { FileType, SearchResponse } from './types'
+import type { FileType, SearchResponse, YearListResponse } from './types'
 
 /**
  * Everything the search screen can vary.
@@ -46,4 +46,14 @@ export function searchDocuments(
       folder_path: query.folderPath,
     },
   })
+}
+
+/**
+ * The year filter's choices.
+ *
+ * Computed by the server over the same documents search can return for this
+ * user, so a year appears only if something readable carries it.
+ */
+export function fetchSearchYears(options: RequestOptions = {}): Promise<YearListResponse> {
+  return getJson<YearListResponse>('/search/years', options)
 }

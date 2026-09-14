@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..errors import ApiError
 from .common import Anchor
+from .documents import ChatCapabilityOut
 
 
 class CreateSessionRequest(BaseModel):
@@ -76,6 +77,10 @@ class SessionListResponse(BaseModel):
     page: int
     size: int
     total: int
+    # The same capability the document page reads, from the same gate. The
+    # question page loads this list anyway, so it learns whether questions can
+    # be answered at all before anybody opens an empty conversation.
+    chat: ChatCapabilityOut
 
 
 class AccessibleSource(BaseModel):

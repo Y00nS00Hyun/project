@@ -7,6 +7,8 @@ interface Props {
   state: SearchState;
   tags: TagRef[];
   tagsLoading?: boolean;
+  /** Years from GET /search/years. Empty while loading or if that call failed. */
+  years?: readonly number[];
   onChange: (patch: Partial<SearchState>) => void;
 }
 
@@ -19,28 +21,26 @@ interface Props {
 // Bringing the filter back is a change to this file alone.
 
 /**
- * Years offered in the dropdown.
+ * Years offered in the dropdown, newest first.
  *
- * There is no year-metadata endpoint and this task does not add one, so the
- * list is a recent range rather than the set of years that actually have
- * documents. A year already in the URL is folded in so a shared link keeps
- * showing its own filter.
+ * Only what the server reported: the years documents this user may search
+ * actually carry. Nothing is generated from the calendar, so an old document
+ * stays reachable and an empty year is never offered.
+ *
+ * A year already in the URL is folded in even when the server did not list
+ * it -- a shared link, or a list that failed to load -- so the selection the
+ * page is showing results for does not silently vanish from the control.
  */
 export function yearOptions(
+  available: readonly number[],
   selected: number | null,
-  now = new Date(),
 ): number[] {
-  const current = now.getFullYear();
-  const years: number[] = [];
-  for (let year = current; year >= current - 9; year -= 1) years.push(year);
-  if (selected != null && !years.includes(selected)) {
-    years.push(selected);
-    years.sort((a, b) => b - a);
-  }
-  return years;
+  const years = new Set(available.filter((year) => Number.isInteger(year)));
+  if (selected != null) years.add(selected);
+  return [...years].sort((a, b) => b - a);
 }
 
-export function Filters({ state, tags, tagsLoading, onChange }: Props) {
+export function Filters({ state, tags, tagsLoading, years = [], onChange }: Props) {
   // Document kinds are tags under a reserved namespace, so they arrive on the
   // same GET /tags call and are filtered with the same tag_id parameter. The
   // namespace prefix is an implementation detail and never reaches the screen.
@@ -76,7 +76,7 @@ export function Filters({ state, tags, tagsLoading, onChange }: Props) {
             }
           >
             <option value="">전체</option>
-            {yearOptions(state.year).map((year) => (
+            {yearOptions(years, state.year).map((year) => (
               <option key={year} value={year}>
                 {year}년
               </option>

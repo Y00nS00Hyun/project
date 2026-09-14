@@ -23,16 +23,26 @@ const KIND_TAGS = [
 function renderWithContainer(
   state: Partial<SearchState> = {},
   tags = KIND_TAGS,
+  years: number[] = [],
 ) {
   const onChange = vi.fn()
   const result = renderAt(
-    <Filters state={{ ...EMPTY, ...state }} tags={tags} onChange={onChange} />,
+    <Filters state={{ ...EMPTY, ...state }} tags={tags} years={years} onChange={onChange} />,
   )
   return { ...result, onChange }
 }
 
-function render(state: Partial<SearchState> = {}, tags = [{ id: 12, name: '보안' }]) {
-  return renderWithContainer(state, tags).onChange
+function render(
+  state: Partial<SearchState> = {},
+  tags = [{ id: 12, name: '보안' }],
+  years: number[] = [],
+) {
+  return renderWithContainer(state, tags, years).onChange
+}
+
+function yearLabels(): string[] {
+  const select = screen.getByLabelText('연도') as HTMLSelectElement
+  return Array.from(select.options).map((option) => option.textContent ?? '')
 }
 
 describe('year filter', () => {
@@ -48,10 +58,25 @@ describe('year filter', () => {
     expect(screen.getByLabelText('연도')).toHaveValue('2026')
   })
 
-  it('keeps a year from a shared link even when outside the recent range', () => {
-    render({ year: 2011 })
+  it('offers exactly the years the server listed, newest first', () => {
+    render({}, undefined, [2017, 2022, 2023, 2024, 2025, 2026])
+    expect(yearLabels()).toEqual([
+      '전체', '2026년', '2025년', '2024년', '2023년', '2022년', '2017년',
+    ])
+  })
+
+  it('generates nothing from the calendar', () => {
+    // The old control listed the ten years before today whether or not any
+    // document had them. With no years reported there is only 전체.
+    render()
+    expect(yearLabels()).toEqual(['전체'])
+    expect(yearOptions([], null)).toEqual([])
+  })
+
+  it('keeps a year from a shared link even when the server did not list it', () => {
+    render({ year: 2011 }, undefined, [2026, 2017])
     expect(screen.getByLabelText('연도')).toHaveValue('2011')
-    expect(yearOptions(2011, new Date('2026-09-09'))).toContain(2011)
+    expect(yearOptions([2026, 2017], 2011)).toEqual([2026, 2017, 2011])
   })
 
   it('explains where the year comes from, only once a year is chosen', () => {
@@ -68,7 +93,7 @@ describe('year filter', () => {
   })
 
   it('reports the selected year to the caller', async () => {
-    const onChange = render()
+    const onChange = render({}, undefined, [2026, 2017])
     await userEvent.selectOptions(screen.getByLabelText('연도'), '2026')
     expect(onChange).toHaveBeenCalledWith({ year: 2026 })
   })

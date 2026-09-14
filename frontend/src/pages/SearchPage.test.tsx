@@ -16,7 +16,8 @@ function searchUrls(): string[] {
   return vi
     .mocked(fetch)
     .mock.calls.map((call) => String(call[0]))
-    .filter((url) => url.includes('/api/v1/search'))
+    // The search route itself, not /search/years that shares its prefix.
+    .filter((url) => url.split('?')[0] === '/api/v1/search')
 }
 
 describe('SearchPage', () => {
@@ -262,7 +263,10 @@ describe('SearchPage', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt(<SearchPage />)
     await screen.findByText('문서 1건')
-    const first = fetchMock.mock.calls.find((call) => String(call[0]).includes('/search'))
+    // The search request itself; /search/years shares the prefix and is never aborted.
+    const first = fetchMock.mock.calls.find(
+      (call) => String(call[0]).split('?')[0] === '/api/v1/search',
+    )
     await userEvent.selectOptions(screen.getByLabelText('파일 형식'), 'pdf')
     expect(screen.queryByText('2026년 AI 문서관리 사업계획서')).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('문서를 불러오는 중...')
@@ -295,5 +299,41 @@ describe('SearchPage', () => {
     await userEvent.click(screen.getByRole('button', { name: '검색' }))
     expect(await screen.findByText('검색 결과 1건')).toBeInTheDocument()
     expect(attempts).toBe(2)
+  })
+
+  it('fills the year filter from the server, not from the calendar', async () => {
+    vi.stubGlobal('fetch', mockFetch({ ...emptyMetadata, '/api/v1/search': makeSearchResponse([]) }))
+    renderAt(<SearchPage />, '/search')
+
+    const select = screen.getByLabelText('연도') as HTMLSelectElement
+    await waitFor(() => expect(select.options).toHaveLength(4))
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      '전체', '2026년', '2025년', '2017년',
+    ])
+  })
+
+  it('keeps searching and keeps 전체 when the year list cannot be loaded', async () => {
+    vi.stubGlobal('fetch', mockFetch({
+      ...emptyMetadata,
+      '/api/v1/search/years': () => errorResponse('INTERNAL_ERROR', '연도 목록 오류', 500),
+      '/api/v1/search': makeSearchResponse([makeItem()], { total: 1 }),
+    }))
+    renderAt(<SearchPage />, '/search')
+
+    expect(await screen.findByText('문서 1건')).toBeInTheDocument()
+    const select = screen.getByLabelText('연도') as HTMLSelectElement
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['전체'])
+    expect(select).toBeEnabled()
+    expect(screen.queryByText('연도 목록 오류')).not.toBeInTheDocument()
+  })
+
+  it('keeps a year from the URL selected even if the server does not list it', async () => {
+    vi.stubGlobal('fetch', mockFetch({ ...emptyMetadata, '/api/v1/search': makeSearchResponse([]) }))
+    renderAt(<SearchPage />, '/search?year=2015')
+
+    const select = screen.getByLabelText('연도') as HTMLSelectElement
+    await waitFor(() => expect(select.options.length).toBeGreaterThan(1))
+    expect(select).toHaveValue('2015')
+    expect(searchUrls()[0]).toContain('year=2015')
   })
 })
