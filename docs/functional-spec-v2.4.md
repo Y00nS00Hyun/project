@@ -1,10 +1,10 @@
 # 사내 문서 관리 시스템 — 기능 명세서 (v2.4)
 
-> **DESIGN FREEZE v1 — IMPLEMENTATION DEFAULT** · 2026-09-08
->
-> 이 문서와 [DB 스키마 v2.4](database-schema-v2.4.md)가 구현의 authoritative specification이다.
-> Frozen/Open 범위와 변경 정책은 [Design Freeze v1](design-freeze-v1.md)을 따른다.
-> [v2.3](functional-spec-v2.3.md)은 수정 없이 history/reference로 보존한다.
+> **SUPERSEDED — 기록용 문서.** 현재 구현 기준은 [README](../README.md)와 코드이며,
+> 시스템 개요는 [README](../README.md)에 있다. 이 문서는 작성 시점의
+> 상태를 담고 있어 현재 동작과 다를 수 있다.
+
+> **DESIGN FREEZE v1 기준으로 작성** · 2026-09-08 · [v2.3](functional-spec-v2.3.md)에서 이어짐
 >
 > **v2.3 대비 주요 변경**
 > 1. Vector 기본 semantic 경로 + pg_trgm 별도 lexical 경로, automatic RRF 기본 OFF

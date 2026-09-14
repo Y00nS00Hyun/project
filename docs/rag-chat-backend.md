@@ -1,5 +1,9 @@
 # RAG Backend + Chat API v1
 
+> **AS-BUILT 기록 — 작성 시점의 구현 상태다.**
+> 이후 추가된 것: 문서 범위 대화, 사전 생성 요약, `DOCUMENT_EXTERNAL_LLM_ENABLED`
+> safety gate. 현재 상태는 [README](../README.md) §7을 본다.
+
 기준: [API Contract §9](api-contract-v1.md), [DB v2.5](database-schema-v2.5.md),
 [기능명세 v2.4](functional-spec-v2.4.md), [Design Freeze](design-freeze-v1.md).
 Frozen 문서·migration·Frontend는 변경하지 않는다.

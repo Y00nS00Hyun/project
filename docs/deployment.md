@@ -1,8 +1,9 @@
 # Deployment — single VM, docker compose
 
 현재 VM 한 대에서 전체 스택을 실행하기 위한 **운영 절차서**다.
-설계 근거는 `docs/design-freeze-v1.md`와 `docs/api-contract-v1.md`에 있고,
-이 문서는 실제로 입력할 명령만 다룬다.
+이 문서는 실제로 입력할 명령만 다룬다. 시스템이 무엇을 하는지는
+[README](../README.md), 스키마와 API는 `docs/database-schema-v2.5.md`와
+`docs/api-contract-v1.3.md`를 본다.
 
 ```text
 Browser
@@ -575,8 +576,11 @@ cookie를 먼저 보는 이유는 그것이 실제 사람이 가진 것이기 �
 인증이 성공하면 그 뒤로는 **user_id 하나만** 기존 경로로 넘어간다.
 
 ```text
-인증 (무엇이든) ──► user_id ──► users ──► department ──► document_permissions
+인증 (무엇이든) ──► user_id ──► users ──► document_permissions
 ```
+
+`document_permissions`는 user_id / department_id / is_public 세 principal을 받는다.
+현재 운영에서 실제로 쓰이는 것은 is_public(승인된 ACTIVE 사용자 전체)과 user_id다.
 
 `require_user`는 권한 로직을 복제하지 않는다. 다른 방식은 user_id만 만들어내면 된다.
 
@@ -615,11 +619,16 @@ http://<VM-IP>:<APP_HTTP_PORT>/
 
 ```text
 TLS/HTTPS          미구성. 실운영 전 필수
-SSO                미구현. 현재 production API는 전부 401
 DB backup          스크립트/절차 검증 완료. 자동 스케줄과 원격 보관은 미구현 ← 아래
+대규모 검증        현재 corpus 12건. 처리량·응답시간·랭킹 파라미터 재측정 필요
+DOCX/PDF           스캔되어 목록에는 보이지만 본문 추출 없음(UNSUPPORTED_FORMAT)
+외부 LLM           요약·문서 질의응답 코드는 있으나 provider 미설정으로 비활성
 로그 수집          없음. docker compose logs 로만 확인
 메트릭/알림        없음
 ```
+
+SSO는 회사에 통합 로그인 시스템이 없어 구현하지 않는다. 인증은 §10의 Local Auth가
+담당하며 이것이 실제 운영 방식이다.
 
 ### DB backup
 
@@ -688,7 +697,10 @@ backend는 의도적으로 뜨지 않는다.
 구조를 점검한다. 자동 다운로드는 없다.
 
 **UI는 뜨는데 검색이 401이다**
-정상이다. §10을 참고한다. SSO 미구현.
+로그인하지 않은 상태다. `/login`으로 로그인한다. 로그인했는데도 401이면 계정이
+아직 PENDING이거나 비활성화된 것이므로 §10의 승인 절차를 확인한다.
+HTTPS 없이 `AUTH_COOKIE_SECURE=true`로 두어도 같은 증상이 난다(쿠키가 전송되지
+않는다).
 
 **nginx 502**
 backend가 아직 healthy가 아니거나 죽어 있다. `docker compose ps` 확인.

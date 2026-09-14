@@ -1,5 +1,9 @@
 # HTTP API — Search / Documents (v1)
 
+> **AS-BUILT 기록 — 작성 시점의 구현 상태다.**
+> 이후 추가된 것: 인증/관리 endpoint, 폴더 목록, 원문 텍스트 미리보기.
+> 현행 API는 [API Contract v1.3](api-contract-v1.3.md)을 본다.
+
 구현: `src/api/` · 테스트: `tests/test_api_contract.py`, `tests/test_api_http.py`
 
 [API Contract v1](api-contract-v1.md)의 **Search / Document 범위**를 FastAPI로 구현한 것이다.

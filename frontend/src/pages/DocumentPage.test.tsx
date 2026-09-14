@@ -448,6 +448,25 @@ describe('DocumentPage text preview', () => {
       .filter((url) => url.includes('/text'))
   }
 
+  it('sits with the summary, not below the download button', async () => {
+    // Both sections are about what the document says, so they belong
+    // together: the short version, then the full text, then the box for
+    // asking about either. 원본 파일 is about the file rather than its
+    // contents and comes after all three.
+    stub(makeTextPage())
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await screen.findByRole('heading', { name: makeDetail().title })
+
+    const headings = Array.from(document.querySelectorAll('.section-title'))
+      .map((node) => node.textContent?.trim())
+    expect(headings).toEqual([
+      '문서 요약',
+      '▸ 원문 텍스트 보기',
+      '이 문서에 질문하기',
+      '원본 파일',
+    ])
+  })
+
   it('asks for nothing until the reader opens it', async () => {
     // A long report is hundreds of thousands of characters; it is not fetched
     // for every visit to the page.

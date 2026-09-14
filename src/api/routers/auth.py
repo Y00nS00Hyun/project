@@ -234,11 +234,25 @@ admin_router = APIRouter(prefix='/admin', tags=['admin'], responses={
 @admin_router.get('/users', response_model=list[AdminUserOut], summary='사용자 목록')
 def list_users(
     status: str | None = None,
+    include_loginless: bool = False,
     user: AuthenticatedUser = Depends(require_admin_user),
     service: AuthService = Depends(get_auth_service),
 ):
+    """Accounts an administrator may need to act on.
+
+    By default only those who could sign in right now, plus the PENDING queue.
+    Disabled accounts and credential-less seeded users are left out: both are
+    already shut out, and together they buried the rows that need a decision.
+    `include_loginless=true` returns every row -- which is how a disabled
+    account is found again in order to re-enable it.
+    """
     try:
-        return [AdminUserOut(**row) for row in service.list_users(user.user_id, status)]
+        return [
+            AdminUserOut(**row)
+            for row in service.list_users(
+                user.user_id, status, signin_capable_only=not include_loginless,
+            )
+        ]
     except InvalidSignup as exc:
         raise validation_error(exc.message) from None
 

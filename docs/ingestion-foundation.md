@@ -1,5 +1,9 @@
 # File Sync + Ingestion Foundation
 
+> **AS-BUILT 기록 — 작성 시점의 구현 상태다.**
+> 이후 추가된 것: rename/move 감지, 문서 작성일 추출, systemd timer 자동 수집.
+> 현재 수집 동작은 [README](../README.md) §2를 본다.
+
 구현 위치: `src/ingestion/` · 테스트: `tests/test_file_scanner.py`, `test_file_sync.py`,
 `test_ingestion.py`, `test_chunker.py`, `test_document_year.py`
 

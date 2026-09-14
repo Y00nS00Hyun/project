@@ -235,11 +235,30 @@ class AuthRepository:
             )
             return cur.rowcount
 
-    def list_users(self, status: str | None = None) -> list[dict[str, Any]]:
+    def list_users(
+        self, status: str | None = None, *, signin_capable_only: bool = False,
+    ) -> list[dict[str, Any]]:
         """Accounts, for the administration screen.
 
         No password hash and no session data. An administrator needs to decide
         whether to let somebody in, which takes a name, a login id and a status.
+
+        `signin_capable_only` answers one question -- *could this person sign
+        in right now?* -- and drops everyone who could not:
+
+          * no `local_auth_credentials` row: seeded and imported users, who
+            have no password and never had one, so nothing on this screen
+            applies to them
+          * `status = 'DISABLED'`: an administrator already shut them out
+          * `is_active = FALSE`: the same answer by a different lever
+
+        PENDING accounts stay. They cannot sign in yet either, but they are
+        the queue this screen exists for and hiding them would empty it.
+
+        Nothing here deletes or changes a row; it decides what is listed.
+        Defaults to False so that callers looking up one known account (see
+        `_one` in the router) still find it whichever kind it is -- disabling
+        somebody must not make the response about them a 404.
         """
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -249,12 +268,17 @@ class AuthRepository:
                 FROM users u
                 LEFT JOIN local_auth_credentials c ON c.user_id = u.id
                 WHERE (%s::text IS NULL OR u.status = %s::text)
+                  AND (NOT %s OR (
+                        c.login_id IS NOT NULL
+                    AND u.status <> 'DISABLED'
+                    AND u.is_active
+                  ))
                 ORDER BY
                     -- Pending first: that queue is why the page exists.
                     CASE WHEN u.status = 'PENDING' THEN 0 ELSE 1 END,
                     u.created_at DESC
                 """,
-                (status, status),
+                (status, status, signin_capable_only),
             )
             return [dict(row) for row in cur.fetchall()]
 

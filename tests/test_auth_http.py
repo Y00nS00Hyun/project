@@ -395,6 +395,111 @@ def test_an_administrator_can_approve_and_the_account_then_works(
     assert do_login(client, login_id='waiting').status_code == 200
 
 
+def seed_user(conn, name):
+    """A user with no credential -- seeded or imported, cannot sign in."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO users (sso_subject, name) VALUES (%s, %s) RETURNING id",
+            (f'seed:{name}', name),
+        )
+        return str(cur.fetchone()[0])
+
+
+def test_the_admin_list_hides_accounts_that_cannot_sign_in(
+    client, conn, factory, world,
+):
+    """Nobody can sign in as them, so no decision on this screen applies."""
+    seed_user(conn, '앨리스')
+    make_admin(client, conn, factory, world)
+
+    rows = client.get('/api/v1/admin/users').json()
+    assert all(row['login_id'] is not None for row in rows)
+    assert '앨리스' not in [row['name'] for row in rows]
+    # The administrator's own account is a real one and stays.
+    assert 'admin1' in [row['login_id'] for row in rows]
+
+
+def test_disabling_removes_the_row_from_the_default_list(
+    client, conn, factory, world,
+):
+    """A disabled account cannot sign in either, so the same filter applies."""
+    do_signup(client, login_id='leaver')
+    target = approve(conn, factory, 'leaver')
+    make_admin(client, conn, factory, world)
+    assert 'leaver' in [row['login_id'] for row in client.get('/api/v1/admin/users').json()]
+
+    client.post(f'/api/v1/admin/users/{target}/disable')
+
+    assert 'leaver' not in [row['login_id'] for row in client.get('/api/v1/admin/users').json()]
+
+
+def test_a_pending_account_is_never_hidden(client, conn, factory, world):
+    """PENDING cannot sign in yet, but that queue is why the screen exists."""
+    do_signup(client, login_id='waiting')
+    make_admin(client, conn, factory, world)
+
+    rows = client.get('/api/v1/admin/users').json()
+    waiting = next(row for row in rows if row['login_id'] == 'waiting')
+    assert waiting['status'] == 'PENDING'
+
+
+def test_include_loginless_returns_them(client, conn, factory, world):
+    seed_user(conn, '앨리스')
+    do_signup(client, login_id='leaver')
+    target = approve(conn, factory, 'leaver')
+    make_admin(client, conn, factory, world)
+    client.post(f'/api/v1/admin/users/{target}/disable')
+
+    rows = client.get('/api/v1/admin/users?include_loginless=true').json()
+    names = [row['name'] for row in rows]
+    logins = [row['login_id'] for row in rows]
+    # Both kinds of shut-out account come back -- which is how a disabled one
+    # is found again in order to re-enable it.
+    assert '앨리스' in names
+    assert 'leaver' in logins
+    assert 'admin1' in logins
+
+
+def test_hiding_a_row_does_not_delete_or_change_it(client, conn, factory, world):
+    """The filter is about what is listed, nothing else."""
+    seeded = seed_user(conn, '앨리스')
+    make_admin(client, conn, factory, world)
+    client.get('/api/v1/admin/users')
+
+    with conn.cursor() as cur:
+        cur.execute('SELECT status, is_active FROM users WHERE id = %s', (seeded,))
+        assert cur.fetchone() == ('ACTIVE', True)
+
+
+def test_an_action_on_a_hidden_account_still_returns_the_row(
+    client, conn, factory, world,
+):
+    """The response re-reads the account, and the default filter must not hide it.
+
+    Disabling a seeded user is a legitimate thing to do from the unfiltered
+    list. If the lookup behind the response used the filtered query, the
+    action would succeed and then 404.
+    """
+    seeded = seed_user(conn, '앨리스')
+    make_admin(client, conn, factory, world)
+
+    response = client.post(f'/api/v1/admin/users/{seeded}/disable')
+    assert response.status_code == 200
+    assert response.json()['status'] == 'DISABLED'
+    assert response.json()['login_id'] is None
+
+
+def test_the_status_filter_still_applies_to_loginless_rows(
+    client, conn, factory, world,
+):
+    seed_user(conn, '앨리스')
+    make_admin(client, conn, factory, world)
+
+    rows = client.get('/api/v1/admin/users?status=ACTIVE&include_loginless=true').json()
+    assert '앨리스' in [row['name'] for row in rows]
+    assert all(row['status'] == 'ACTIVE' for row in rows)
+
+
 def test_the_admin_list_never_exposes_a_hash(client, conn, factory, world):
     make_admin(client, conn, factory, world)
     body = client.get('/api/v1/admin/users').text

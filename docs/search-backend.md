@@ -1,5 +1,9 @@
 # ACL-aware Search Backend
 
+> **AS-BUILT 기록 — 작성 시점의 구현 상태다.**
+> 이후 추가된 것: 제목 가중치(0.075), 선택적 본문 완전 일치 가중치, 폴더 필터,
+> `is_public` principal. 현재 랭킹 설명은 [README](../README.md) §4를 본다.
+
 구현: `src/search/` · 테스트: `tests/test_search_models.py`, `tests/test_search_backend.py`
 
 기준 문서는 [기능명세 v2.4](functional-spec-v2.4.md), [DB 스키마 v2.5](database-schema-v2.5.md),

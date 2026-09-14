@@ -1,5 +1,8 @@
 # Embedding Pipeline + Current Revision Promotion
 
+> **AS-BUILT 기록 — 작성 시점의 구현 상태다.**
+> 현재 임베딩 구성은 [README](../README.md) §1을 본다.
+
 구현: `src/ingestion/embedding.py`, `embedding_service.py`, `repository.py`
 테스트: `tests/test_embedding.py`, `tests/test_embedding_pipeline.py`
 

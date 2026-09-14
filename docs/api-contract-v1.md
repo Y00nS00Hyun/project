@@ -1,5 +1,9 @@
 # 사내 문서 관리 시스템 — API Contract v1
 
+> **SUPERSEDED — 기록용 문서.** 현재 구현 기준은 [API Contract v1.3](api-contract-v1.3.md)이며,
+> 시스템 개요는 [README](../README.md)에 있다. 이 문서는 작성 시점의
+> 상태를 담고 있어 현재 동작과 다를 수 있다.
+
 작성일: 2026-09-08 · **API Contract: READY** · **Consistency Check: PASS**
 
 구현 기준은 [기능명세 v2.4](functional-spec-v2.4.md), [DB 스키마 v2.4](database-schema-v2.4.md),

@@ -1,5 +1,9 @@
 # DESIGN FREEZE v1
 
+> **AS-BUILT 기록 — 작성 시점의 구현 상태다.**
+> 이 문서가 정한 Frozen/Open 구분 중 일부는 이후 실측에 따라 바뀌었다.
+> 현재 구현 상태는 [README](../README.md)를 본다.
+
 작성일: 2026-09-08 · **Design Freeze: READY** · **Consistency Check: PASS**
 
 구현 기준은 [기능명세 v2.4](functional-spec-v2.4.md)와

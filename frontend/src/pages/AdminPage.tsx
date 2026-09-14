@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ApiClientError } from '../api/client'
 import { approveUser, disableUser, fetchAdminUsers, setUserAdmin } from '../api/auth'
 import { ErrorView, LoadingState } from '../components/StateViews'
@@ -22,10 +23,14 @@ import type { AdminUser } from '../api/types'
 export function AdminPage() {
   const { user } = useAuth()
   const [version, setVersion] = useState(0)
+  const [showAll, setShowAll] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<ApiClientError | null>(null)
 
-  const users = useAsyncResource((signal) => fetchAdminUsers(undefined, { signal }), [version])
+  const users = useAsyncResource(
+    (signal) => fetchAdminUsers(undefined, { signal }, showAll),
+    [version, showAll],
+  )
 
   const run = useCallback(async (userId: string, action: () => Promise<unknown>) => {
     if (busy) return
@@ -49,10 +54,33 @@ export function AdminPage() {
 
   return (
     <main className="page">
+      <p className="back-link">
+        <Link to="/search">← 검색으로</Link>
+      </p>
       <h1 className="page-title">사용자 관리</h1>
       <p className="state-hint">
         승인은 로그인 허용만을 의미하며, 문서 열람 권한은 별도로 부여합니다.
-        비활성화한 계정은 <strong>활성화</strong> 버튼으로 되돌릴 수 있습니다.
+        비활성화한 계정은 목록에서 사라집니다. 아래를 체크하면 다시 찾아
+        <strong> 활성화</strong> 할 수 있습니다.
+      </p>
+
+      {/* The list answers one question by default: who could sign in right
+          now? Anyone already shut out -- disabled, or a seeded user who never
+          had a password -- is left out, because together they outnumbered the
+          accounts that actually needed a decision. PENDING stays: that queue
+          is why the screen exists.
+
+          Nothing is deleted or changed by this; a disabled account is found
+          again by checking the box, which is how it gets re-enabled. */}
+      <p className="admin-filter">
+        <label>
+          <input
+            type="checkbox"
+            checked={showAll}
+            onChange={(event) => setShowAll(event.target.checked)}
+          />{' '}
+          로그인할 수 없는 계정도 보기
+        </label>
       </p>
 
       {error && <ErrorView error={error} />}

@@ -271,11 +271,13 @@ class AuthService:
         if not self.repository.is_system_admin(user_id):
             raise NotAnAdministrator()
 
-    def list_users(self, admin_id: str, status: str | None = None):
+    def list_users(
+        self, admin_id: str, status: str | None = None, *, signin_capable_only: bool = False,
+    ):
         self.require_admin(admin_id)
         if status is not None and status not in (STATUS_PENDING, STATUS_ACTIVE, STATUS_DISABLED):
             raise InvalidSignup('status', '알 수 없는 상태입니다.')
-        return self.repository.list_users(status)
+        return self.repository.list_users(status, signin_capable_only=signin_capable_only)
 
     def departments(self, admin_id: str):
         self.require_admin(admin_id)

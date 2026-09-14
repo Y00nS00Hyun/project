@@ -60,9 +60,20 @@ export function logout(options: RequestOptions = {}): Promise<void> {
 // --- administration --------------------------------------------------------
 
 export function fetchAdminUsers(
-  status?: string, options: RequestOptions = {},
+  status?: string,
+  options: RequestOptions = {},
+  includeLoginless = false,
 ): Promise<AdminUser[]> {
-  return getJson<AdminUser[]>('/admin/users', { ...options, params: status ? { status } : {} })
+  // Without the flag the server returns only accounts that can sign in --
+  // seeded and imported users have no credential and no decision on the
+  // admin screen applies to them.
+  return getJson<AdminUser[]>('/admin/users', {
+    ...options,
+    params: {
+      ...(status ? { status } : {}),
+      ...(includeLoginless ? { include_loginless: true } : {}),
+    },
+  })
 }
 
 /**

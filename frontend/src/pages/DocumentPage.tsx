@@ -188,6 +188,8 @@ function DocumentContent({ documentId }: { documentId: string }) {
 
       <DocumentSummary summary={doc.summary} />
 
+      {doc.is_searchable && <TextPreview documentId={doc.document_id} />}
+
       {doc.is_searchable && (
         // Only when there is a current revision to answer from. Offering the
         // box for a document with no searchable body would invite questions
@@ -218,8 +220,6 @@ function DocumentContent({ documentId }: { documentId: string }) {
         )}
         {downloadError && <ErrorView error={downloadError} />}
       </section>
-
-      {doc.is_searchable && <TextPreview documentId={doc.document_id} />}
 
       {/* Most documents are ingested once and never edited, and for those the
           history is a single row restating the page above it. Hidden there,
