@@ -133,6 +133,15 @@ docker compose exec backend python -m ingestion run --limit 500
 
 `--root`를 주지 않으면 컨테이너의 `SHARED_ROOT`(기본 `/data/shared`)를 쓴다.
 
+파서가 추가되기 전에 수집되어 `UNSUPPORTED_FORMAT`으로 남은 DOCX·PDF는, 파일이 그대로면
+일반 scan이 unchanged로 넘긴다. 다음 명령으로 **기존 document와 revision을 유지한 채**
+다시 처리한다.
+
+```bash
+docker compose exec backend python -m ingestion reparse-unsupported
+docker compose exec backend python -m ingestion run
+```
+
 ---
 
 ## 4.1 자동 수집 (systemd timer)
@@ -664,7 +673,7 @@ http://<VM-IP>:<APP_HTTP_PORT>/
 TLS/HTTPS          미구성. 실운영 전 필수
 원격 백업 보관     매일 03:00 로컬 자동 백업은 동작한다. VM 외부 보관은 미구현
 대규모 검증        현재 corpus 12건. 처리량·응답시간·랭킹 파라미터 재측정 필요
-PDF                스캔되어 목록에는 보이지만 본문 추출 없음(UNSUPPORTED_FORMAT)
+PDF OCR/layout     스캔(이미지-only) PDF OCR, 표·복잡한 layout 복원 미지원
 외부 LLM           요약·문서 질의응답 코드는 있으나 provider 미설정으로 비활성
 로그 수집          없음. docker compose logs 로만 확인
 메트릭/알림        없음

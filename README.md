@@ -1,6 +1,6 @@
 # 사내 문서 관리 시스템
 
-사내 공유폴더의 HWP/HWPX 문서를 수집해 권한을 적용한 검색과 문서 기반 질의응답을
+사내 공유폴더의 HWP·HWPX·DOCX·PDF 문서를 수집해 권한을 적용한 검색과 문서 기반 질의응답을
 제공한다. 단일 Ubuntu VM + Docker Compose로 운영한다.
 
 ```text
@@ -46,18 +46,33 @@ revision만 READY이고, 그중 문서가 가리키는 current revision 하나�
 | `.hwpx` | O | O | 검색 가능 |
 | `.hwp` | O | O | 검색 가능 |
 | `.docx` | O | O | 검색 가능 |
-| `.pdf` | O | **X** | 문서로 등록되지만 `UNSUPPORTED_FORMAT`, 검색 불가 |
+| `.pdf` | O | O (text layer가 있는 PDF) | 검색 가능. 이미지-only PDF는 `OCR_REQUIRED`, 검색 불가 |
 
-파서는 HWPX·HWP·DOCX 셋이 등록되어 있다(`src/document_processing/parsers/__init__.py`).
-PDF는 스캔 대상(`DISCOVERABLE_EXTENSIONS`)에는 들어 있어 목록에는 보이지만 본문이 없어
-검색되지 않는다. 형식 추가는 파서 registry에 등록하는 작업이다.
+파서는 HWPX·HWP·DOCX·PDF 넷이 등록되어 있다(`src/document_processing/parsers/__init__.py`).
+형식 추가는 파서 registry에 등록하는 작업이다.
 
 **DOCX**는 paragraph와 표 셀 텍스트를 추출하고, **문서에 선언된 순서를 그대로 지킨다** —
 문단·표·문단으로 쓰인 문서는 추출 결과도 그 순서다. 표 안의 텍스트도 검색된다. 원본
 레이아웃 재현이 목적이 아니므로 이미지 OCR, 도형·SmartArt, 머리글/바닥글, 변경 내용
 추적은 지원하지 않는다. `.docm`은 대상이 아니다.
 
-파서가 생기기 전에 수집되어 `UNSUPPORTED_FORMAT`으로 남은 DOCX는 파일이 그대로면 해시도
+**PDF**는 pypdf로 **text layer에 있는 텍스트만** 추출한다. 여러 페이지를 지원하고, 각 블록에
+파일 안의 실제 페이지 번호를 붙여 검색 결과·원문 미리보기의 page anchor(`N페이지`)로 쓴다.
+chunk는 page 경계를 넘어 합치지 않는다. 텍스트 기반 PDF는 다른 형식과 똑같이
+parse → chunk → embedding → READY를 거쳐 검색된다. 표의 행/열 구조나 원본 layout은 복원하지
+않으며, text layer에 들어 있는 표 글자는 일반 텍스트로 검색된다.
+
+| PDF 상태 | 결과 |
+|---|---|
+| 이미지만 있는 PDF (스캔본) | `OCR_REQUIRED` — OCR하지 않으며 검색 대상이 아니다 |
+| 텍스트도 이미지도 없는 PDF | `EMPTY_DOCUMENT` |
+| 손상된 PDF | `CORRUPT` |
+| 비밀번호가 필요한 PDF | `ENCRYPTED` |
+| AES 암호화 PDF | crypto 의존성이 없어, 인쇄 제한만 걸린 경우에도 `ENCRYPTED`(detail `CRYPTO_LIBRARY_REQUIRED`)로 처리될 수 있다 |
+
+OCR, PDF viewer, thumbnail, layout 복원은 지원하지 않는다.
+
+파서가 생기기 전에 수집되어 `UNSUPPORTED_FORMAT`으로 남은 DOCX·PDF는 파일이 그대로면 해시도
 같아 일반 scan이 unchanged로 넘긴다. 다음 명령이 그 revision을 다시 parse 큐에 넣는다 —
 새 document나 revision을 만들지 않고 기존 revision을 재사용한다.
 
@@ -234,7 +249,7 @@ scripts/db-restore.sh backups/<dump>
 - **실제 회사 공유폴더 연결** — 현재는 테스트용 폴더를 대상으로 동작한다.
 - **대규모 corpus 검증** — 현재 12건 규모. 처리량, 검색 응답시간, 그리고 위의
   provisional 파라미터는 실제 규모에서 다시 측정해야 한다.
-- **PDF 본문 추출** — 현재는 발견만 되고 파싱되지 않는다. 필요해지면 파서 registry에 추가한다.
+- **스캔 PDF OCR / 복잡한 layout 복원** — text layer가 없는 PDF는 검색되지 않는다.
 - **외부 LLM 실제 활성화** — provider 설정과 safety gate 해제 모두 명시적 결정이
   필요하다.
 - **백업의 VM 외부 보관** — 매일 03:00 로컬 자동 백업은 동작한다. 덤프가 원본과

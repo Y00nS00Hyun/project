@@ -1,7 +1,7 @@
 # File Sync + Ingestion Foundation
 
 > **AS-BUILT 기록 — 작성 시점의 구현 상태다.**
-> 이후 추가된 것: DOCX 파서, rename/move 감지, 문서 작성일 추출, systemd timer 자동 수집.
+> 이후 추가된 것: DOCX·PDF 파서, rename/move 감지, 문서 작성일 추출, systemd timer 자동 수집.
 > 현재 수집 동작과 지원 형식은 [README](../README.md) §2를 본다.
 
 구현 위치: `src/ingestion/` · 테스트: `tests/test_file_scanner.py`, `test_file_sync.py`,
@@ -274,7 +274,7 @@ job 획득은 `FOR UPDATE SKIP LOCKED`라 여러 worker가 같은 job을 집지 
    `next_attempt_at` 정책은 미구현이다.
 4. **64 tokens는 잠정값이다.** 사내 장문 문서에서 재측정이 필요하다.
 5. **`document_year`는 제목만 본다.** 문서 내부 메타데이터나 본문은 보지 않는다.
-6. **PDF는 발견되지만 파싱되지 않는다.** `UNSUPPORTED_FORMAT`으로 분류된다. (DOCX는 이후 지원됨)
+6. **PDF는 발견되지만 파싱되지 않는다.** `UNSUPPORTED_FORMAT`으로 분류된다. (DOCX·text layer PDF는 이후 지원됨)
 7. **동시 worker 운영 정책은 미정이다.** DB 제약으로 정합성은 지키지만 worker 수·주기는 OPEN이다.
 
 ---

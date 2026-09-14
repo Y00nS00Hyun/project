@@ -217,6 +217,12 @@ def chunk_document(
                 )
             continue
 
+        if pending and block.page_number != pending[-1].page_number:
+            # A chunk records one page_number, taken from its first block. Packing
+            # across a page boundary would cite page-2 text as page 1, so a new
+            # page always starts a new chunk. Formats without pages (HWP, HWPX,
+            # DOCX) carry None throughout and are unaffected.
+            flush()
         if pending:
             combined = "\n\n".join(b.text for b in (*pending, block))
             if tokenizer.count_tokens(combined) > max_tokens:

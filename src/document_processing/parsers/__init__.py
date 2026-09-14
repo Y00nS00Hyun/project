@@ -24,11 +24,11 @@ from .exceptions import (
 from .docx import DocxParser
 from .hwp import HwpParser
 from .hwpx import HwpxParser
+from .pdf import PdfParser
 
 #: Registration order decides which parser wins when several claim a file.
 #: Each claims a distinct extension, so order is not load-bearing today.
-#: PDF is declared in the functional spec and would be appended here.
-_PARSERS: tuple[DocumentParser, ...] = (HwpxParser(), HwpParser(), DocxParser())
+_PARSERS: tuple[DocumentParser, ...] = (HwpxParser(), HwpParser(), DocxParser(), PdfParser())
 
 
 def available_parsers() -> tuple[DocumentParser, ...]:
@@ -60,6 +60,7 @@ __all__ = [
     "ERROR_CODES",
     "BaseParser",
     "DocxParser",
+    "PdfParser",
     "CorruptDocumentError",
     "DocumentParseError",
     "DocumentParser",
