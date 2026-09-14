@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 /**
@@ -8,11 +8,12 @@ import { useAuth } from '../auth/AuthContext'
  * route guard and, more importantly, every admin endpoint check the flag for
  * themselves, so hiding the link conceals nothing that matters.
  */
-export function AppNav() {
+export function AppNav({ showBrand = false }: { showBrand?: boolean }) {
   const { user, signOut } = useAuth()
 
   return (
     <nav className="app-nav" aria-label="주요 메뉴">
+      {showBrand && <Link className="app-brand" to="/search">사내 문서 관리</Link>}
       <NavLink to="/search" className={linkClass}>
         문서 검색
       </NavLink>

@@ -161,7 +161,7 @@ describe('DocumentPage', () => {
     const labels = Array.from(document.querySelectorAll('.detail-grid dt'))
       .map((node) => node.textContent)
     expect(labels).toEqual([
-      '파일 형식', '문서 작성일', '시스템 등록일', '원본 파일 수정일',
+      '문서 작성일', '시스템 등록일', '원본 파일 수정일',
       '파일 크기', '검색에 사용 중인 버전', '최신 감지 버전',
     ])
   })
@@ -432,12 +432,12 @@ describe('DocumentPage text preview', () => {
   beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
   afterEach(() => vi.unstubAllGlobals())
 
-  function stub(text: unknown, detail = makeDetail()) {
+  function stub(text: unknown, detail = makeDetail(), revisions = [makeRevision()]) {
     vi.stubGlobal('fetch', mockFetch({
       ...NO_CHAT_SESSIONS,
       // Ahead of the bare document route, which would otherwise swallow it.
       '/api/v1/documents/doc-1/text': text,
-      '/api/v1/documents/doc-1/revisions': revisionsResponse(),
+      '/api/v1/documents/doc-1/revisions': revisionsResponse(revisions),
       '/api/v1/documents/doc-1': detail,
     }))
   }
@@ -448,23 +448,26 @@ describe('DocumentPage text preview', () => {
       .filter((url) => url.includes('/text'))
   }
 
-  it('sits with the summary, not below the download button', async () => {
-    // Both sections are about what the document says, so they belong
-    // together: the short version, then the full text, then the box for
-    // asking about either. 원본 파일 is about the file rather than its
-    // contents and comes after all three.
-    stub(makeTextPage())
+  it('places reading and version tools before the AI sections', async () => {
+    stub(makeTextPage(), makeDetail(), [
+      makeRevision(),
+      makeRevision({ revision_id: 'rev-1', revision_no: 1, is_current: false }),
+    ])
     renderAt(<DocumentPage />, PATH, ROUTE)
     await screen.findByRole('heading', { name: makeDetail().title })
+    await screen.findByRole('button', { name: /이전 버전과 변경사항 보기/ })
 
     const headings = Array.from(document.querySelectorAll('.section-title'))
       .map((node) => node.textContent?.trim())
     expect(headings).toEqual([
-      '문서 요약',
       '▸ 원문 텍스트 보기',
+      '▸ 버전 이력 (2)',
+      '▸ 이전 버전과 변경사항 보기',
+      '문서 요약',
       '이 문서에 질문하기',
-      '원본 파일',
     ])
+    expect(screen.getByRole('button', { name: '원본 다운로드' }))
+      .toBeInTheDocument()
   })
 
   it('asks for nothing until the reader opens it', async () => {

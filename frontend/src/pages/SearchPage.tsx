@@ -72,11 +72,10 @@ export function SearchPage() {
     folders.data?.items.find((item) => item.path === state.folderPath) ?? null
 
   return (
-    <main className="page page-with-sidebar">
-      <AppNav />
-      <h1 className="page-title">사내 문서 검색</h1>
+    <main className="search-page">
+      <AppNav showBrand />
 
-      <div className="workspace">
+      <div className={sidebarOpen ? 'workspace' : 'workspace sidebar-collapsed'}>
         <aside className={sidebarOpen ? 'sidebar' : 'sidebar is-collapsed'}>
           <div className="sidebar-header">
             <h2 className="sidebar-title">프로젝트 / 폴더</h2>
@@ -93,81 +92,84 @@ export function SearchPage() {
             </button>
           </div>
           {sidebarOpen && (
-            <>
-              {folders.error ? (
-                <ErrorView error={folders.error} />
-              ) : (
-                <FolderTree
-                  folders={folders.data?.items ?? []}
-                  totalDocuments={folders.data?.total_documents ?? 0}
-                  topLevelDocuments={folders.data?.top_level_documents ?? 0}
-                  loading={folders.loading}
-                  selected={state.folderPath}
-                  topLevelSelected={state.topLevelOnly}
-                  // The canonical path is handed straight back; nothing here
-                  // reconstructs it from display names. Selecting a folder
-                  // clears the top-level filter and the reverse, because the
-                  // two describe mutually exclusive sets.
-                  onSelect={(path) => update({ folderPath: path, topLevelOnly: false })}
-                  onSelectTopLevel={() =>
-                    update({ folderPath: null, topLevelOnly: true })}
-                />
-              )}
-            </>
+            folders.error ? (
+              <ErrorView error={folders.error} />
+            ) : (
+              <FolderTree
+                folders={folders.data?.items ?? []}
+                totalDocuments={folders.data?.total_documents ?? 0}
+                topLevelDocuments={folders.data?.top_level_documents ?? 0}
+                loading={folders.loading}
+                selected={state.folderPath}
+                topLevelSelected={state.topLevelOnly}
+                // The canonical path is handed straight back; nothing here
+                // reconstructs it from display names. Selecting a folder
+                // clears the top-level filter and the reverse, because the
+                // two describe mutually exclusive sets.
+                onSelect={(path) => update({ folderPath: path, topLevelOnly: false })}
+                onSelectTopLevel={() =>
+                  update({ folderPath: null, topLevelOnly: true })}
+              />
+            )
           )}
         </aside>
 
         <div className="workspace-main">
-      <SearchForm value={state.q} onSubmit={onSubmit} />
-
-      <Filters
-        state={state}
-        tags={tags.data?.items ?? []}
-        tagsLoading={tags.loading}
-        years={yearList}
-        onChange={update}
-      />
-
-      {(selectedFolder || state.topLevelOnly) && (
-        <p className="selected-folder">
-          <span className="selected-folder-label">폴더</span>
-          {selectedFolder ? selectedFolder.name : TOP_LEVEL_LABEL}
-          <button type="button" className="chip chip-removable"
-                  onClick={() => update({ folderPath: null, topLevelOnly: false })}
-                  aria-label="폴더 선택 해제">
-            해제 <span aria-hidden="true">×</span>
-          </button>
-        </p>
-      )}
-
-      {tags.error && <ErrorView error={tags.error} />}
-
-      <section className="results" aria-busy={loading}>
-        {error ? (
-          <ErrorView error={error} />
-        ) : loading && !data ? (
-          <LoadingState label={state.q ? '검색 중...' : '문서를 불러오는 중...'} />
-        ) : data ? (
-          <>
-            <p className="result-count">
-              {state.q ? '검색 결과' : '문서'} {data.total.toLocaleString('ko-KR')}건
-              {loading && <span className="inline-loading"> · 갱신 중...</span>}
+          <header className="search-header">
+            <h1 className="page-title">문서 검색</h1>
+            <p className="page-description">
+              필요한 사내 문서를 제목과 본문에서 검색할 수 있습니다.
             </p>
-            {data.items.length === 0 ? (
-              <EmptyState
-                message={state.q ? '검색 결과가 없습니다.' : '표시할 문서가 없습니다.'}
-              />
-            ) : (
-              <ul className="result-list">
-                {data.items.map((item) => (
-                  <ResultCard key={item.document_id} item={item} />
-                ))}
-              </ul>
-            )}
-            <Pagination page={data.page} size={data.size} total={data.total} onChange={goToPage} />
-          </>
-        ) : null}
-      </section>
+            <SearchForm value={state.q} onSubmit={onSubmit} />
+            <Filters
+              state={state}
+              tags={tags.data?.items ?? []}
+              tagsLoading={tags.loading}
+              years={yearList}
+              onChange={update}
+            />
+          </header>
+
+          {(selectedFolder || state.topLevelOnly) && (
+            <p className="selected-folder">
+              <span className="selected-folder-label">폴더</span>
+              {selectedFolder ? selectedFolder.name : TOP_LEVEL_LABEL}
+              <button type="button" className="chip chip-removable"
+                      onClick={() => update({ folderPath: null, topLevelOnly: false })}
+                      aria-label="폴더 선택 해제">
+                해제 <span aria-hidden="true">×</span>
+              </button>
+            </p>
+          )}
+
+          {tags.error && <ErrorView error={tags.error} />}
+
+          <section className="results" aria-busy={loading}>
+            {error ? (
+              <ErrorView error={error} />
+            ) : loading && !data ? (
+              <LoadingState label={state.q ? '검색 중...' : '문서를 불러오는 중...'} />
+            ) : data ? (
+              <>
+                <p className="result-count">
+                  {state.q ? '검색 결과' : '문서'} {data.total.toLocaleString('ko-KR')}건
+                  {loading && <span className="inline-loading"> · 갱신 중...</span>}
+                </p>
+                {data.items.length === 0 ? (
+                  <EmptyState
+                    message={state.q ? '검색 결과가 없습니다.' : '표시할 문서가 없습니다.'}
+                  />
+                ) : (
+                  <ul className="result-list">
+                    {data.items.map((item) => (
+                      <ResultCard key={item.document_id} item={item} />
+                    ))}
+                  </ul>
+                )}
+                <Pagination page={data.page} size={data.size} total={data.total} onChange={goToPage} />
+              </>
+            ) : null}
+          </section>
         </div>
       </div>
     </main>

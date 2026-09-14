@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ApiClientError } from '../api/client'
 import { downloadDocument, fetchDocument, fetchRevisions } from '../api/documents'
+import { AppNav } from '../components/AppNav'
 import { DocumentChat } from '../components/DocumentChat'
 import { DocumentSummary } from '../components/DocumentSummary'
 import { RevisionDiff } from '../components/RevisionDiff'
@@ -119,9 +120,39 @@ function DocumentContent({ documentId }: { documentId: string }) {
   const newerPending = current != null && latest != null && latest.revision_id !== current.revision_id
 
   return (
-    <main className="page">
+    <main className="page document-page">
+      <AppNav showBrand />
       <BackLink />
-      <h1 className="page-title">{doc.title}</h1>
+
+      <header className="document-header">
+        <div className="document-heading">
+          <h1 className="page-title">{doc.title}</h1>
+          <ul className="chips document-badges" aria-label="문서 분류">
+            <li><span className="chip chip-file-type">{fileTypeLabel(doc.file_type)}</span></li>
+            {doc.tags.map((tag) => (
+              <li key={tag.id}>
+                <Link className="chip" to={`/search?tag_id=${tag.id}`}>
+                  {tag.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="document-actions">
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={onDownload}
+            disabled={!doc.downloadable || downloading}
+          >
+            {downloading ? '내려받는 중...' : '원본 다운로드'}
+          </button>
+          {!doc.downloadable && (
+            <p className="state-hint">현재 이 문서의 원본을 내려받을 수 없습니다.</p>
+          )}
+          {downloadError && <ErrorView error={downloadError} />}
+        </div>
+      </header>
 
       {/* No department row. The organisation does not use departments, so the
           field could only ever read "-" or name something nobody navigates by.
@@ -130,7 +161,6 @@ function DocumentContent({ documentId }: { documentId: string }) {
           DocumentDetail.department in the response, because removing a field
           from a served schema is a breaking change for no gain. */}
       <dl className="detail-grid">
-        <Field label="파일 형식" value={fileTypeLabel(doc.file_type)} />
         {/* Three different dates, so each says which one it is.
 
             작성일  what the document's own cover states, or 알 수 없음
@@ -170,18 +200,6 @@ function DocumentContent({ documentId }: { documentId: string }) {
         )}
       </dl>
 
-      {doc.tags.length > 0 && (
-        <ul className="chips" aria-label="태그">
-          {doc.tags.map((tag) => (
-            <li key={tag.id}>
-              <Link className="chip" to={`/search?tag_id=${tag.id}`}>
-                {tag.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-
       {/* Not an error, and not something the reader can act on: ingestion runs
           on a timer and this clears itself. It is here because a search that
           quietly answers from last week's copy of a file the reader edited
@@ -195,40 +213,7 @@ function DocumentContent({ documentId }: { documentId: string }) {
         <p className="notice">이 문서는 아직 검색에 사용할 수 있는 본문이 없습니다.</p>
       )}
 
-      <DocumentSummary summary={doc.summary} />
-
       {doc.is_searchable && <TextPreview documentId={doc.document_id} />}
-
-      {doc.is_searchable && (
-        // Only when there is a current revision to answer from. Offering the
-        // box for a document with no searchable body would invite questions
-        // that can only be refused.
-        //
-        // Rendered even when the capability is off: the panel then explains
-        // that the feature is disabled, which is more use than a section that
-        // silently is not there.
-        <DocumentChat
-          documentId={doc.document_id}
-          title={doc.title}
-          available={doc.chat.available}
-        />
-      )}
-
-      <section className="section">
-        <h2 className="section-title">원본 파일</h2>
-        <button
-          type="button"
-          className="button button-primary"
-          onClick={onDownload}
-          disabled={!doc.downloadable || downloading}
-        >
-          {downloading ? '내려받는 중...' : '원본 다운로드'}
-        </button>
-        {!doc.downloadable && (
-          <p className="state-hint">현재 이 문서의 원본을 내려받을 수 없습니다.</p>
-        )}
-        {downloadError && <ErrorView error={downloadError} />}
-      </section>
 
       {/* Most documents are ingested once and never edited, and for those the
           history is a single row restating the page above it. Hidden there,
@@ -268,6 +253,23 @@ function DocumentContent({ documentId }: { documentId: string }) {
       ) : null}
 
       {diffAvailable && <RevisionDiff documentId={doc.document_id} />}
+
+      <DocumentSummary summary={doc.summary} />
+
+      {doc.is_searchable && (
+        // Only when there is a current revision to answer from. Offering the
+        // box for a document with no searchable body would invite questions
+        // that can only be refused.
+        //
+        // Rendered even when the capability is off: the panel then explains
+        // that the feature is disabled, which is more use than a section that
+        // silently is not there.
+        <DocumentChat
+          documentId={doc.document_id}
+          title={doc.title}
+          available={doc.chat.available}
+        />
+      )}
     </main>
   )
 }

@@ -22,14 +22,6 @@ export function ResultCard({ item }: { item: SearchItem }) {
         <Link to={`/documents/${item.document_id}`} state={linkState}>{item.title}</Link>
       </h3>
 
-      {/* Department is deliberately absent here too: a result line should
-          carry what helps somebody choose between results, and every document
-          would say the same thing. The field is still in the response. */}
-      <p className="result-meta">
-        <span>{fileTypeLabel(item.file_type)}</span>
-        <span>수정 {formatDate(item.updated_at)}</span>
-      </p>
-
       {/* Browse mode runs no retrieval, so snippet is null and no empty
           placeholder is drawn in its place. */}
       {item.snippet && (
@@ -38,25 +30,35 @@ export function ResultCard({ item }: { item: SearchItem }) {
         </p>
       )}
 
+      {/* Department is deliberately absent here too: a result line should
+          carry what helps somebody choose between results, and every document
+          would say the same thing. The field is still in the response. */}
+      <p className="result-meta">
+        <span>{fileTypeLabel(item.file_type)}</span>
+        <span>수정 {formatDate(item.updated_at)}</span>
+      </p>
+
       <p className="result-footer">
-        {position && <span className="result-position">{position}</span>}
-        {item.tags.map((tag) => (
-          <span key={tag.id} className="chip">
-            {tag.name}
-          </span>
-        ))}
-        {item.has_newer_revision && (
-          // "반영 중", not "미반영". Ingestion runs on a timer, so a newer
-          // revision is on its way rather than stuck -- and the difference
-          // decides whether somebody waits a minute or goes looking for an
-          // administrator.
-          <span
-            className="chip chip-note"
-            title="최신 파일 버전을 검색에 반영하는 중입니다. 그때까지는 현재 검색 버전이 사용됩니다"
-          >
-            새 버전 반영 중
-          </span>
-        )}
+        <span className="result-footer-details">
+          {position && <span className="result-position">{position}</span>}
+          {item.tags.map((tag) => (
+            <span key={tag.id} className="chip">
+              {tag.name}
+            </span>
+          ))}
+          {item.has_newer_revision && (
+            // "반영 중", not "미반영". Ingestion runs on a timer, so a newer
+            // revision is on its way rather than stuck -- and the difference
+            // decides whether somebody waits a minute or goes looking for an
+            // administrator.
+            <span
+              className="chip chip-note"
+              title="최신 파일 버전을 검색에 반영하는 중입니다. 그때까지는 현재 검색 버전이 사용됩니다"
+            >
+              새 버전 반영 중
+            </span>
+          )}
+        </span>
         <Link className="button button-quiet" to={`/documents/${item.document_id}`} state={linkState}>
           문서 보기
         </Link>
