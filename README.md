@@ -45,12 +45,26 @@ revision만 READY이고, 그중 문서가 가리키는 current revision 하나�
 |---|---|---|---|
 | `.hwpx` | O | O | 검색 가능 |
 | `.hwp` | O | O | 검색 가능 |
-| `.docx` | O | **X** | 문서로 등록되지만 `UNSUPPORTED_FORMAT`, 검색 불가 |
+| `.docx` | O | O | 검색 가능 |
 | `.pdf` | O | **X** | 문서로 등록되지만 `UNSUPPORTED_FORMAT`, 검색 불가 |
 
-파서는 HWPX와 HWP만 등록되어 있다(`src/document_processing/parsers/__init__.py`).
-DOCX와 PDF는 스캔 대상(`DISCOVERABLE_EXTENSIONS`)에는 들어 있어 목록에는 보이지만
-본문이 없어 검색되지 않는다. 형식 추가는 파서 registry에 등록하는 작업이다.
+파서는 HWPX·HWP·DOCX 셋이 등록되어 있다(`src/document_processing/parsers/__init__.py`).
+PDF는 스캔 대상(`DISCOVERABLE_EXTENSIONS`)에는 들어 있어 목록에는 보이지만 본문이 없어
+검색되지 않는다. 형식 추가는 파서 registry에 등록하는 작업이다.
+
+**DOCX**는 paragraph와 표 셀 텍스트를 추출하고, **문서에 선언된 순서를 그대로 지킨다** —
+문단·표·문단으로 쓰인 문서는 추출 결과도 그 순서다. 표 안의 텍스트도 검색된다. 원본
+레이아웃 재현이 목적이 아니므로 이미지 OCR, 도형·SmartArt, 머리글/바닥글, 변경 내용
+추적은 지원하지 않는다. `.docm`은 대상이 아니다.
+
+파서가 생기기 전에 수집되어 `UNSUPPORTED_FORMAT`으로 남은 DOCX는 파일이 그대로면 해시도
+같아 일반 scan이 unchanged로 넘긴다. 다음 명령이 그 revision을 다시 parse 큐에 넣는다 —
+새 document나 revision을 만들지 않고 기존 revision을 재사용한다.
+
+```bash
+docker compose exec backend python -m ingestion reparse-unsupported
+docker compose exec backend python -m ingestion run
+```
 
 ### 자동 수집
 
@@ -220,7 +234,7 @@ scripts/db-restore.sh backups/<dump>
 - **실제 회사 공유폴더 연결** — 현재는 테스트용 폴더를 대상으로 동작한다.
 - **대규모 corpus 검증** — 현재 12건 규모. 처리량, 검색 응답시간, 그리고 위의
   provisional 파라미터는 실제 규모에서 다시 측정해야 한다.
-- **DOCX/PDF 등 형식 추가** — 필요해지면 파서 registry에 추가한다.
+- **PDF 본문 추출** — 현재는 발견만 되고 파싱되지 않는다. 필요해지면 파서 registry에 추가한다.
 - **외부 LLM 실제 활성화** — provider 설정과 safety gate 해제 모두 명시적 결정이
   필요하다.
 - **백업의 VM 외부 보관** — 매일 03:00 로컬 자동 백업은 동작한다. 덤프가 원본과

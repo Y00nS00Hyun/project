@@ -59,11 +59,14 @@ def make_tokenizer(args, config: IngestionConfig):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ingestion", description=__doc__.splitlines()[0])
     parser.add_argument(
-        "command", choices=["sync", "parse", "embed", "summarize", "resume-summaries", "run"],
+        "command", choices=["sync", "parse", "embed", "summarize", "resume-summaries",
+                            "reparse-unsupported", "run"],
         help="sync = discover files; parse = process PARSE jobs; "
              "embed = process EMBED jobs; summarize = process SUMMARIZE jobs; "
              "resume-summaries = re-open summaries skipped while generation was "
-             "off; run = sync, parse and embed",
+             "off; reparse-unsupported = queue revisions recorded as "
+             "UNSUPPORTED_FORMAT whose format a parser now handles; "
+             "run = sync, parse and embed",
     )
     parser.add_argument("--root", type=Path, default=None,
                         help="shared folder root (defaults to $SHARED_ROOT)")
@@ -116,6 +119,45 @@ def main(argv: list[str] | None = None) -> int:
         output["summarize"] = {
             **summary_service.process_pending(args.limit).as_dict(),
             "reconciled": reconciled,
+        }
+
+    if args.command == "reparse-unsupported":
+        # The backfill path for adding a parser. An unchanged file keeps its
+        # content hash, so a scan sees it as unchanged and never re-parses it;
+        # without this the revision stays UNSUPPORTED_FORMAT even though the
+        # system can now read it.
+        #
+        # No new document and no new revision: the existing revision is queued,
+        # and the parse worker overwrites its outcome exactly as on a first
+        # pass. Run `parse` afterwards (or let the timer's `run` do it).
+        from document_processing.parsers import available_parsers
+
+        from .repository import IngestionRepository
+
+        supported = tuple(
+            extension.lstrip(".")
+            for parser in available_parsers()
+            for extension in getattr(parser, "extensions", ())
+        )
+        with factory() as conn:
+            conn.autocommit = False
+            repo = IngestionRepository(conn)
+            try:
+                revisions = repo.revisions_unsupported_but_now_parseable(
+                    supported, args.limit
+                )
+                queued = sum(
+                    1 for revision_id in revisions
+                    if repo.enqueue_parse_job(revision_id) is not None
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        output["reparse_unsupported"] = {
+            "supported_extensions": sorted(supported),
+            "found": len(revisions),
+            "queued": queued,
         }
 
     if args.command == "resume-summaries":

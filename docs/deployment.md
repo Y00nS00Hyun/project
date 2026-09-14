@@ -664,7 +664,7 @@ http://<VM-IP>:<APP_HTTP_PORT>/
 TLS/HTTPS          미구성. 실운영 전 필수
 원격 백업 보관     매일 03:00 로컬 자동 백업은 동작한다. VM 외부 보관은 미구현
 대규모 검증        현재 corpus 12건. 처리량·응답시간·랭킹 파라미터 재측정 필요
-DOCX/PDF           스캔되어 목록에는 보이지만 본문 추출 없음(UNSUPPORTED_FORMAT)
+PDF                스캔되어 목록에는 보이지만 본문 추출 없음(UNSUPPORTED_FORMAT)
 외부 LLM           요약·문서 질의응답 코드는 있으나 provider 미설정으로 비활성
 로그 수집          없음. docker compose logs 로만 확인
 메트릭/알림        없음

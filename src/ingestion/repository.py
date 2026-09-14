@@ -724,6 +724,53 @@ class IngestionRepository:
             row = cur.fetchone()
             return str(row[0]) if row else None
 
+    def revisions_unsupported_but_now_parseable(
+        self, extensions: tuple[str, ...], limit: int = 1000,
+    ) -> list[str]:
+        """Revisions recorded as UNSUPPORTED_FORMAT whose format is now supported.
+
+        The backfill path for adding a parser. A file that has not changed has
+        the same content hash, so an ordinary scan sees it as unchanged and
+        never re-parses it -- the revision would sit at UNSUPPORTED_FORMAT
+        forever even though the system can now read it.
+
+        Deliberately narrow. Nothing is created and nothing is rewritten here:
+        the caller enqueues a PARSE job against the *existing* revision, and
+        the parse worker overwrites the outcome exactly as it would on a first
+        pass. Restricted to:
+
+          * `parse_result_code = 'UNSUPPORTED_FORMAT'` -- a successfully parsed
+            HWP or HWPX revision is never touched, nor is a PARSE_FAILED one,
+            which is a different problem with a different fix
+          * the document's latest revision -- the one the file on disk
+            corresponds to, so we do not re-read a file for a superseded row
+          * a document that is present and not deleted -- the file has to still
+            be there
+
+        The extension is matched against `documents.file_type` rather than the
+        path, so it follows the same value the rest of the system filters on.
+        """
+        if not extensions:
+            return []
+        wanted = [e.lower().lstrip(".") for e in extensions]
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.id
+                FROM document_revisions r
+                JOIN documents d ON d.id = r.document_id
+                WHERE r.parse_result_code = 'UNSUPPORTED_FORMAT'
+                  AND d.latest_revision_id = r.id
+                  AND d.is_deleted = FALSE
+                  AND d.missing_since IS NULL
+                  AND lower(d.file_type) = ANY(%s)
+                ORDER BY r.created_at
+                LIMIT %s
+                """,
+                (wanted, limit),
+            )
+            return [str(row[0]) for row in cur.fetchall()]
+
     def recover_stale_jobs(
         self, stale_seconds: int, *, job_type: str | None = None
     ) -> dict[str, list[str]]:

@@ -1,8 +1,8 @@
 """Parser registry.
 
 Callers should go through :func:`get_parser` / :func:`parse_document` rather
-than importing a concrete parser, so that adding DOCX/PDF support later is a
-registry change and nothing else.
+than importing a concrete parser, so that adding a format is a registry change
+and nothing else -- which is all DOCX support was above this line.
 """
 
 from __future__ import annotations
@@ -21,13 +21,14 @@ from .exceptions import (
     ParseFailedError,
     UnsupportedFormatError,
 )
+from .docx import DocxParser
 from .hwp import HwpParser
 from .hwpx import HwpxParser
 
 #: Registration order decides which parser wins when several claim a file.
-#: Only HWP/HWPX are in scope for this PoC; DOCX and PDF are declared in the
-#: functional spec and would be appended here.
-_PARSERS: tuple[DocumentParser, ...] = (HwpxParser(), HwpParser())
+#: Each claims a distinct extension, so order is not load-bearing today.
+#: PDF is declared in the functional spec and would be appended here.
+_PARSERS: tuple[DocumentParser, ...] = (HwpxParser(), HwpParser(), DocxParser())
 
 
 def available_parsers() -> tuple[DocumentParser, ...]:
@@ -58,6 +59,7 @@ def parse_document(file_path: Path | str) -> ParsedDocument:
 __all__ = [
     "ERROR_CODES",
     "BaseParser",
+    "DocxParser",
     "CorruptDocumentError",
     "DocumentParseError",
     "DocumentParser",
