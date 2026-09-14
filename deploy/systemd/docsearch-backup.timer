@@ -1,0 +1,34 @@
+[Unit]
+Description=docsearch: daily database backup
+Documentation=file:///home/sh-test/project/docs/deployment.md
+
+[Timer]
+Unit=docsearch-backup.service
+
+# ---------------------------------------------------------------------------
+# THE SCHEDULE. This is the one line to change.
+#
+#   sudo systemctl edit docsearch-backup.timer      (creates a drop-in)
+#   sudo systemctl restart docsearch-backup.timer
+#
+# 03:00 server local time, daily. Unlike the ingestion timer this is a wall
+# clock time rather than an interval: a backup's value is that one exists for
+# each day, not that a fixed gap separates them.
+# ---------------------------------------------------------------------------
+OnCalendar=*-*-* 03:00:00
+
+# A minute either side is fine for a nightly job, and it lets systemd batch the
+# wakeup instead of holding a precise timer all night.
+AccuracySec=1min
+
+# Spreads the start over a few minutes. Nothing else runs at 03:00 here; it
+# costs nothing and keeps the dump off the exact hour, where cron jobs cluster.
+RandomizedDelaySec=5min
+
+# If the machine was off at 03:00, take the missed backup once after boot
+# rather than skipping the day. This is the directive that makes a daily
+# backup survive a server that is not on all night.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

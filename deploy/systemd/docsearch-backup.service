@@ -1,0 +1,42 @@
+[Unit]
+Description=docsearch: back up the PostgreSQL database
+Documentation=file:///home/sh-test/project/docs/deployment.md
+# Only meaningful once Docker is up. Not Requires=: if Docker is down this run
+# should fail and tomorrow's should try again, not drag the timer with it.
+After=docker.service
+Wants=docker.service
+
+# A failed backup must never disable the timer. Without this, systemd's default
+# rate limiter refuses to start a unit that failed repeatedly -- which is
+# exactly the situation where the next attempt matters most.
+#
+# It belongs in [Unit], not [Service]. systemd accepts it in [Service] on some
+# versions and logs "Unknown key name" on others (249 among them), where it is
+# silently ignored and the protection is simply absent.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+
+# Runs as the deployment's owner, who is in the docker group and owns the
+# backup directory. Not root: this needs exactly one privilege, and it already
+# has it.
+User=sh-test
+Group=docker
+
+# Optional. A deployment that does not create it uses the wrapper's defaults.
+EnvironmentFile=-/etc/docsearch/backup.env
+
+ExecStart=/home/sh-test/project/deploy/systemd/docsearch-backup.sh
+
+# Bounded so a wedged dump cannot hold the lock until tomorrow's tick. Generous
+# against the current database; a run that exceeds it is stuck, and killing it
+# frees the lock.
+TimeoutStartSec=60min
+
+# db-backup.sh prints the target path, size and archive entry count. It never
+# prints credentials or row data, and the dump itself goes to a file rather
+# than through the journal.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=docsearch-backup

@@ -463,3 +463,100 @@ class TestIngestionTimer:
         service = self.unit("docsearch-ingest.service")
         assert "User=" in service
         assert "User=root" not in service
+
+
+class TestBackupTimer(TestIngestionTimer):
+    """The systemd units that make the daily backup automatic.
+
+    Inherits the ingestion class for `unit` and `sections`, and for the
+    ingestion assertions themselves -- the point of this work was to add a
+    timer without disturbing that one, so those must keep passing here too.
+
+    The failure modes are the same shape and just as silent: a timer systemd
+    disabled after a few failures still exists, and nobody notices until the
+    day they need a dump that was never taken.
+    """
+
+    def test_it_runs_daily_at_three(self):
+        timer = self.sections(self.unit("docsearch-backup.timer"))["Timer"]
+        assert "OnCalendar=*-*-* 03:00:00" in timer
+
+    def test_a_missed_backup_is_taken_after_boot(self):
+        # Persistent is what makes a daily backup survive a machine that is not
+        # on all night: without it a 03:00 tick missed while powered off is
+        # simply skipped, and the day has no dump.
+        timer = self.sections(self.unit("docsearch-backup.timer"))["Timer"]
+        assert "Persistent=true" in timer
+
+    def test_repeated_backup_failures_cannot_disable_the_unit(self):
+        sections = self.sections(self.unit("docsearch-backup.service"))
+        assert "StartLimitIntervalSec=0" in sections["Unit"]
+        # In [Unit]. systemd 249 logs "Unknown key name" for it in [Service]
+        # and carries on without the protection.
+        assert not any(d.startswith("StartLimitIntervalSec") for d in sections["Service"])
+
+    def test_backup_directives_sit_where_systemd_reads_them(self):
+        service = self.sections(self.unit("docsearch-backup.service"))
+        timer = self.sections(self.unit("docsearch-backup.timer"))
+
+        for directive in ("Type=", "User=", "ExecStart=", "TimeoutStartSec=",
+                          "StandardOutput=", "SyslogIdentifier="):
+            assert any(d.startswith(directive) for d in service["Service"]), directive
+        for directive in ("After=", "Wants=", "StartLimitIntervalSec="):
+            assert any(d.startswith(directive) for d in service["Unit"]), directive
+
+        for directive in ("Unit=", "OnCalendar=", "Persistent="):
+            assert any(d.startswith(directive) for d in timer["Timer"]), directive
+        assert "WantedBy=timers.target" in timer["Install"]
+
+    def test_a_second_backup_is_locked_out_rather_than_queued(self):
+        script = self.unit("docsearch-backup.sh")
+        assert "flock --nonblock" in script
+        # Exit 0, like the ingestion tick: a backup is already running, so the
+        # work this tick wanted done is being done.
+        assert "exit 0" in script
+
+    def test_the_backup_logic_is_not_reimplemented_here(self):
+        """The wrapper calls the verified script and adds only a lock.
+
+        Two backup procedures would drift, and the one running unattended at
+        03:00 is the one nobody watches.
+
+        Comments are stripped first: the wrapper names pg_dump and the rest to
+        say it deliberately does none of them, and a test that reads prose as
+        if it were code would force that explanation out of the file.
+        """
+        script = self.unit("docsearch-backup.sh")
+        code = "\n".join(
+            line for line in script.splitlines() if not line.strip().startswith("#")
+        )
+        assert "scripts/db-backup.sh" in code
+        for reimplemented in ("pg_dump", "pg_restore", "BACKUP_KEEP", ".suspect"):
+            assert reimplemented not in code, reimplemented
+
+    def test_no_credentials_in_the_unit_file(self):
+        # db-backup.sh reads .env itself and runs pg_dump inside the container,
+        # so nothing secret belongs in a world-readable unit.
+        service = self.unit("docsearch-backup.service")
+        for secret in ("PASSWORD", "DATABASE_URL", "POSTGRES_PASSWORD"):
+            assert secret not in service, secret
+
+    def test_the_backup_service_is_only_ever_started_by_the_timer(self):
+        assert "[Install]" not in self.unit("docsearch-backup.service")
+
+    def test_the_backup_log_goes_to_the_journal(self):
+        service = self.unit("docsearch-backup.service")
+        assert "StandardOutput=journal" in service
+        assert "SyslogIdentifier=" in service
+
+    def test_the_backup_does_not_run_as_root(self):
+        service = self.unit("docsearch-backup.service")
+        assert "User=" in service
+        assert "User=root" not in service
+
+    def test_install_and_uninstall_cover_both_timers(self):
+        install = self.unit("install.sh")
+        uninstall = self.unit("uninstall.sh")
+        for timer in ("docsearch-ingest.timer", "docsearch-backup.timer"):
+            assert f"enable --now {timer}" in install, timer
+            assert f"disable --now {timer}" in uninstall, timer

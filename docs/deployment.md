@@ -227,6 +227,49 @@ sudo ./deploy/systemd/uninstall.sh
 
 ---
 
+## 4.2 자동 백업 (systemd timer)
+
+`scripts/db-backup.sh`를 매일 **03:00**(서버 로컬 시간)에 실행한다. 백업 방식·보관 개수·
+검증은 전부 그 스크립트가 결정하고, timer는 실행 시점만 정한다.
+
+설치는 ingestion timer와 같은 스크립트가 함께 처리한다.
+
+```bash
+sudo ./deploy/systemd/install.sh
+```
+
+```bash
+# 상태
+systemctl status docsearch-backup.timer
+
+# 다음 실행 시각
+systemctl list-timers | grep docsearch-backup
+
+# 최근 실행 로그
+journalctl -u docsearch-backup.service --since today
+
+# 수동으로 한 번 실행 (timer와 같은 경로를 그대로 탄다)
+sudo systemctl start docsearch-backup.service
+```
+
+`Persistent=true`라서 03:00에 서버가 꺼져 있었다면 다음 부팅 후 한 번 실행된다.
+동시 실행은 `flock`으로 막는다 — 이미 백업이 돌고 있으면 그 tick은 건너뛰고 실패로
+기록하지 않는다.
+
+백업만 잠시 멈추려면:
+
+```bash
+sudo systemctl disable --now docsearch-backup.timer   # 중지
+sudo systemctl enable --now docsearch-backup.timer    # 재개
+```
+
+스케줄을 바꾸려면 `sudo systemctl edit docsearch-backup.timer` 로 drop-in을 만들고
+`sudo systemctl restart docsearch-backup.timer` 한다. 덤프 위치는
+`/etc/docsearch/backup.env` 의 `DOCSEARCH_BACKUP_DIR`, 보관 개수는
+`scripts/db-backup.sh` 의 `BACKUP_KEEP`이다.
+
+---
+
 ## 5. Shutdown
 
 ```bash
@@ -619,7 +662,7 @@ http://<VM-IP>:<APP_HTTP_PORT>/
 
 ```text
 TLS/HTTPS          미구성. 실운영 전 필수
-DB backup          스크립트/절차 검증 완료. 자동 스케줄과 원격 보관은 미구현 ← 아래
+원격 백업 보관    매일 03:00 자동 백업은 동작하나 VM 안에만 있다. 오프사이트 미구현
 대규모 검증        현재 corpus 12건. 처리량·응답시간·랭킹 파라미터 재측정 필요
 DOCX/PDF           스캔되어 목록에는 보이지만 본문 추출 없음(UNSUPPORTED_FORMAT)
 외부 LLM           요약·문서 질의응답 코드는 있으나 provider 미설정으로 비활성
@@ -633,7 +676,8 @@ SSO는 회사에 통합 로그인 시스템이 없어 구현하지 않는다. �
 ### DB backup
 
 백업/복구 **절차와 스크립트는 구현되어 있고 실제 복구까지 검증했다.**
-아직 없는 것은 **자동 실행 스케줄과 원격 보관**이다.
+**매일 03:00 systemd timer로 자동 실행된다**(§4.2). 아직 없는 것은 **원격 보관**이다 —
+덤프가 VM 안에만 있으므로 VM 자체를 잃으면 백업도 함께 잃는다.
 
 ```bash
 scripts/db-backup.sh                 # backups/docsearch-<timestamp>.dump
