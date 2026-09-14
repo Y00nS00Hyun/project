@@ -14,6 +14,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# The runtime lock. Copied before either install so both are pinned by it:
+# pyproject.toml decides *what* is installed, this decides *which version*.
+# Without it a rebuild silently moves torch and everything under it, which is
+# what made an intermittent SIGILL in libtorch_cpu.so impossible to bisect.
+COPY constraints-backend.txt ./
+
 # CPU-only torch, installed from PyTorch's CPU index before the project.
 #
 # This is a wheel-selection concern, not a second dependency list: the version
@@ -21,13 +27,14 @@ WORKDIR /app
 # below re-checks it. Without this line pip resolves the default PyPI wheel,
 # which bundles CUDA and adds several gigabytes that this CPU-only deployment
 # would never execute.
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir -c constraints-backend.txt torch \
+        --index-url https://download.pytorch.org/whl/cpu
 
 # Dependency metadata first so the expensive install layer is cached across
 # source edits.
 COPY pyproject.toml README.md* ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir '.[api,db,llm,embedding]'
+RUN pip install --no-cache-dir -c constraints-backend.txt '.[api,db,llm,embedding]'
 
 # Migration assets. alembic.ini sets script_location = migrations and reads
 # DATABASE_URL from the environment, so both must be present for the migrate

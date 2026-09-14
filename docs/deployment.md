@@ -763,6 +763,27 @@ backend는 의도적으로 뜨지 않는다.
 `docker compose logs backend`에서 모델 캐시 오류를 확인하고 §7의 경로
 구조를 점검한다. 자동 다운로드는 없다.
 
+**ingest timer가 `status=132`(SIGILL)로 죽는다** — 원인 미확정
+
+관측된 사실만 적는다.
+
+- 증상: `docsearch-ingest.service`가 exit 132(SIGILL)로 종료되고, 처리 중이던 EMBED
+  job이 `RUNNING`으로 남는다. 해당 문서는 그동안 `is_ready=false`라 검색에 나오지 않는다
+- 커널 로그의 위치가 매번 같다: `libtorch_cpu.so + 0xb635c63`
+  (`journalctl -k | grep "invalid opcode"`)
+- 그 주소의 명령은 AVX-512(EVEX, zmm) 명령이다
+- 이 VM의 CPU(KVM "Haswell")는 AVX2까지만 지원한다. `avx512*` 플래그가 없다
+- **그 AVX-512 경로로 들어가는 원인은 아직 모른다.** 같은 입력으로 다시 돌리면
+  재현되지 않는다. `MKL_ENABLE_INSTRUCTIONS=AVX2`를 시험했지만 막는다는 근거가 없었고,
+  적용 뒤에도 같은 주소에서 1건 발생해 되돌렸다
+- 복구: 남은 job은 `PROCESSING_JOB_STALE_SECONDS`(900초)가 지나면 자동으로 큐에 돌아가
+  다시 처리된다. 기다리기 싫으면 `docker compose exec backend python -m ingestion embed`
+
+이미지를 다시 빌드한 뒤에는
+`docker compose exec -T backend python - < scripts/embedding-smoke.py`로 임베딩이
+돌아가는지 확인한다(exit 0 통과, 132는 SIGILL). 간헐적인 문제라 통과해도 해결됐다는
+뜻은 아니다.
+
 **UI는 뜨는데 검색이 401이다**
 로그인하지 않은 상태다. `/login`으로 로그인한다. 로그인했는데도 401이면 계정이
 아직 PENDING이거나 비활성화된 것이므로 §10의 승인 절차를 확인한다.
