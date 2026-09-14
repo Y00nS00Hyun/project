@@ -200,8 +200,12 @@ journalctl -u docsearch-ingest.service -n 50
 docker compose exec backend python -m auth.cli list-users
 docker compose exec backend python -m auth.cli approve --login-id <id>
 
-# 백업 / 복구 리허설
-scripts/db-backup.sh
+# 백업 — 매일 03:00 자동 실행된다. 아래는 상태 확인과 수동 1회 실행
+systemctl status docsearch-backup.timer
+journalctl -u docsearch-backup.service --since today
+sudo systemctl start docsearch-backup.service
+
+# 복구 리허설 (운영 DB는 건드리지 않는다)
 scripts/db-restore.sh backups/<dump>
 ```
 
@@ -219,7 +223,10 @@ scripts/db-restore.sh backups/<dump>
 - **DOCX/PDF 등 형식 추가** — 필요해지면 파서 registry에 추가한다.
 - **외부 LLM 실제 활성화** — provider 설정과 safety gate 해제 모두 명시적 결정이
   필요하다.
-- TLS, 백업 자동 스케줄과 원격 보관, 로그 수집, 메트릭/알림.
+- **백업의 VM 외부 보관** — 매일 03:00 로컬 자동 백업은 동작한다. 덤프가 원본과
+  같은 VM에 있어 운영 실수·잘못된 migration·Docker volume 손실은 복구되지만,
+  디스크나 VM 전체 손실에는 대응하지 못한다.
+- TLS, 로그 수집, 메트릭/알림.
 
 ---
 

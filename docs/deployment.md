@@ -662,7 +662,7 @@ http://<VM-IP>:<APP_HTTP_PORT>/
 
 ```text
 TLS/HTTPS          미구성. 실운영 전 필수
-원격 백업 보관    매일 03:00 자동 백업은 동작하나 VM 안에만 있다. 오프사이트 미구현
+원격 백업 보관     매일 03:00 로컬 자동 백업은 동작한다. VM 외부 보관은 미구현
 대규모 검증        현재 corpus 12건. 처리량·응답시간·랭킹 파라미터 재측정 필요
 DOCX/PDF           스캔되어 목록에는 보이지만 본문 추출 없음(UNSUPPORTED_FORMAT)
 외부 LLM           요약·문서 질의응답 코드는 있으나 provider 미설정으로 비활성
@@ -679,14 +679,23 @@ SSO는 회사에 통합 로그인 시스템이 없어 구현하지 않는다. �
 **매일 03:00 systemd timer로 자동 실행된다**(§4.2). 아직 없는 것은 **원격 보관**이다 —
 덤프가 VM 안에만 있으므로 VM 자체를 잃으면 백업도 함께 잃는다.
 
+timer가 부르는 것도, 손으로 돌리는 것도 같은 스크립트다.
+
 ```bash
 scripts/db-backup.sh                 # backups/docsearch-<timestamp>.dump
 scripts/db-backup.sh /mnt/nas/backup # 다른 위치에 저장
 ```
 
+| | |
+| --- | --- |
+| 기본 저장 위치 | `<project>/backups/` (`.gitignore` 처리됨) |
+| 파일 이름 | `<POSTGRES_DB>-<YYYYMMDD-HHMMSS>.dump` — 여기서는 `docsearch-20260914-015129.dump` 형태 |
+| 보관 개수 | `BACKUP_KEEP` (기본 7) — 하루 1회이므로 약 일주일치 |
+| 위치 변경 | `/etc/docsearch/backup.env` 의 `DOCSEARCH_BACKUP_DIR` |
+
 `pg_dump -Fc`(custom format)로 덤프한 뒤 `pg_restore --list`로 아카이브를
 읽어 검증한다. 잘린 덤프는 이 시점에 걸러져 `.suspect`로 이름이 바뀐다.
-`BACKUP_KEEP`(기본 7)개를 넘는 오래된 덤프는 자동 삭제된다.
+보관 개수를 넘는 오래된 덤프는 이때 함께 정리된다.
 
 복구는 **기본이 리허설**이다.
 
@@ -712,13 +721,27 @@ documents, revisions, chunks, embeddings, search_vector, users, permissions
 **7종 전부 일치**를 확인했다. 복원본에서 pgvector 연산과
 `current_ready_chunks` 뷰가 정상 동작했다.
 
-**아직 없는 것:**
+**아직 없는 것은 VM 외부 보관 하나다.** 덤프가 원본과 같은 VM 안에 있으므로,
+이 백업으로 무엇이 복구되고 무엇이 복구되지 않는지는 정확히 나뉜다.
 
 ```text
-자동 실행 스케줄 (cron / systemd timer)
-VM 외부 원격 보관    ← 디스크가 통째로 죽으면 backups/ 도 같이 죽는다
-보관 주기 정책
+복구 가능    운영 실수(잘못된 DELETE, CLI 오조작)
+             잘못된 migration
+             Docker volume 손실 (docker compose down -v 포함)
+             DB 손상으로 Postgres가 기동하지 않는 경우
+
+복구 불가    디스크 전체 손실
+             VM 자체의 삭제·손실
+             호스트 전체를 장악하는 랜섬웨어
 ```
+
+DB 데이터는 Docker 볼륨(`/var/lib/docker/volumes/docsearch_postgres_data`)에,
+덤프는 일반 파일(`backups/`)에 있다. 서로 다른 저장소라서 볼륨이 통째로 사라져도
+덤프는 남는다 — 위 구분이 성립하는 이유다. 다만 같은 디스크이므로 디스크가 죽으면
+둘 다 죽는다.
+
+오프사이트가 필요해지면 `DOCSEARCH_BACKUP_DIR`를 NAS 마운트 경로로 지정하는 것이
+가장 짧은 경로다.
 
 복구 경로는 둘이다. 덤프에서 복원하거나, **공유폴더에서 재색인**하는 것이다.
 원본은 공유폴더에 남아 있으므로 후자도 가능하지만 파싱 + 임베딩을 처음부터
