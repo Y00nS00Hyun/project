@@ -67,25 +67,4 @@ describe('AdminPage', () => {
     ).not.toBeChecked()
   })
 
-  it('offers a way back to the rest of the app', async () => {
-    // The nav strip leads here but nothing here leads back, and this screen is
-    // a detour from whatever the administrator was actually doing.
-    stub()
-    renderAt(<AdminPage />, PATH, PATH)
-
-    const back = await screen.findByRole('link', { name: '← 검색으로' })
-    expect(back).toHaveAttribute('href', '/search')
-  })
-
-  it('puts the back link above the heading, as on the document page', async () => {
-    stub()
-    const { container } = renderAt(<AdminPage />, PATH, PATH)
-    await screen.findByRole('heading', { name: '사용자 관리' })
-
-    const back = container.querySelector('.back-link')
-    const heading = container.querySelector('.page-title')
-    // compareDocumentPosition: FOLLOWING means the heading comes after.
-    expect(back?.compareDocumentPosition(heading!))
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-  })
 })

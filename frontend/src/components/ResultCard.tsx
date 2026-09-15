@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import type { SearchItem } from '../api/types'
+import { isDocumentTypeTag, TAG_NAMESPACE } from '../documentTypes'
 import { anchorLabel, fileTypeLabel, formatDate } from '../labels'
 
 /**
@@ -41,11 +42,20 @@ export function ResultCard({ item }: { item: SearchItem }) {
       <p className="result-footer">
         <span className="result-footer-details">
           {position && <span className="result-position">{position}</span>}
-          {item.tags.map((tag) => (
-            <span key={tag.id} className="chip">
-              {tag.name}
-            </span>
-          ))}
+          {item.tags.map((tag) => {
+            const isDocumentType = isDocumentTypeTag(tag)
+            return (
+              <span
+                key={tag.id}
+                className={isDocumentType ? 'chip chip-document-type' : 'chip'}
+                data-document-type={isDocumentType
+                  ? tag.name.slice(TAG_NAMESPACE.length)
+                  : undefined}
+              >
+                {tag.name}
+              </span>
+            )
+          })}
           {item.has_newer_revision && (
             // "반영 중", not "미반영". Ingestion runs on a timer, so a newer
             // revision is on its way rather than stuck -- and the difference
