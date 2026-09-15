@@ -111,6 +111,10 @@ export interface DocumentDetail {
   downloadable: boolean
   summary: DocumentSummary
   chat: ChatCapability
+  /** Where the file sits, relative and readable. Never a server path. */
+  location: DocumentLocation
+  /** True only for a system administrator while file management is switched on. */
+  file_management: FileManagementCapability
 }
 
 /**
@@ -418,4 +422,48 @@ export interface RevisionDiffResponse {
   added_total: number
   removed_total: number
   truncated: boolean
+}
+
+export interface DocumentLocation {
+  file_name: string
+  /** Canonical path as GET /folders returns it; null at the top level. */
+  folder_path: string | null
+  folder_name: string | null
+}
+
+export interface FileManagementCapability {
+  available: boolean
+}
+
+/** An omitted field is left as it is. `folder_path: ''` is the top level. */
+export interface RelocateRequest {
+  filename?: string
+  folder_path?: string
+}
+
+export interface RelocateResponse {
+  changed: boolean
+  renamed: boolean
+  moved: boolean
+  title: string
+  location: DocumentLocation
+  previous_location: DocumentLocation
+}
+
+/** A real directory under the shared folder (administrators only). */
+export interface AdminDirectory {
+  /** Canonical relative path; the top level itself is not listed. */
+  path: string
+  name: string
+  depth: number
+}
+
+export interface AdminDirectoryListResponse {
+  directories: AdminDirectory[]
+}
+
+export interface CreateDirectoryRequest {
+  /** Canonical path from the directory list; '' is the top level. */
+  parent_path: string
+  name: string
 }

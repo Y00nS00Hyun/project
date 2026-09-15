@@ -20,6 +20,7 @@ from ingestion.path_encoding import display_name
 from rag.models import source_anchor
 from search.repository import READ_PERMISSIONS, READ_ACL_PREDICATE as _ACL_PREDICATE
 
+from .file_management import document_location
 from .revision_diff import paragraph_diff
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class DocumentService:
             "document_id": str(row["id"]),
             "title": row["title"],
             "file_type": row["file_type"],
+            "location": document_location(row["source_path"]),
             "department": (
                 {"id": str(row["department_id"]), "name": row["department_name"]}
                 if row["department_id"] else None

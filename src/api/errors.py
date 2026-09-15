@@ -33,6 +33,11 @@ ERROR_CODES: dict[str, int] = {
     # client to retry something that will never start working. 503 says the
     # capability is absent, which is what the UI needs in order to disable the
     # control rather than let a question fail after it is typed.
+    # Administrator rename/move of an original file.
+    "FILE_ALREADY_EXISTS": 409,
+    "DOCUMENT_PROCESSING": 409,
+    "SOURCE_FILE_MISSING": 409,
+    "FOLDER_ALREADY_EXISTS": 409,
     "FEATURE_UNAVAILABLE": 503,
     "INTERNAL_ERROR": 500,
 }

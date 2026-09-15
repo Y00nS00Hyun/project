@@ -105,6 +105,10 @@ class DocumentDetailOut(BaseModel):
     downloadable: bool
     summary: SummaryOut
     chat: ChatCapabilityOut
+    #: Where the file sits, relative and readable. Never the server path.
+    location: "DocumentLocationOut"
+    #: Whether this caller may rename or move the original file right now.
+    file_management: "FileManagementCapabilityOut" = None  # type: ignore[assignment]
 
 
 class RevisionOut(BaseModel):
@@ -192,3 +196,45 @@ class RevisionDiffResponse(BaseModel):
     removed_total: int = 0
     #: True when either list was cut to the response limit; totals are exact.
     truncated: bool = False
+
+
+class DocumentLocationOut(BaseModel):
+    """The file's name and folder as a reader sees them.
+
+    ``folder_path`` is the canonical relative path GET /folders also returns,
+    null at the top level. No server path and no stored source_path.
+    """
+
+    file_name: str
+    folder_path: str | None = None
+    folder_name: str | None = None
+
+
+class FileManagementCapabilityOut(BaseModel):
+    """True only for a system administrator while the feature is switched on."""
+
+    available: bool = False
+
+
+class RelocateRequest(BaseModel):
+    """Rename and/or move. An omitted field is left as it is.
+
+    ``folder_path`` comes from GET /folders; an empty string is the top level.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    filename: str | None = None
+    folder_path: str | None = None
+
+
+class RelocateResponse(BaseModel):
+    changed: bool
+    renamed: bool
+    moved: bool
+    title: str
+    location: DocumentLocationOut
+    previous_location: DocumentLocationOut
+
+
+DocumentDetailOut.model_rebuild()

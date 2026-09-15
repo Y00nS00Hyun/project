@@ -32,6 +32,13 @@ PASSWORD_CHANGED = 'AUTH_PASSWORD_CHANGED'
 PASSWORD_RESET_ISSUED = 'AUTH_PASSWORD_RESET_ISSUED'
 PASSWORD_RESET_USED = 'AUTH_PASSWORD_RESET_USED'
 
+# Administrative changes to an original file (rename / move). Target is the
+# document, not a user.
+DOCUMENT_RENAMED = 'DOCUMENT_RENAMED'
+DOCUMENT_MOVED = 'DOCUMENT_MOVED'
+# A folder created in the shared folder by an administrator.
+FOLDER_CREATED = 'FOLDER_CREATED'
+
 #: Keys that must never reach the metadata column, whatever a caller passes.
 #: Checked rather than trusted: this module is the last point at which a
 #: credential can be stopped from being written down permanently.
@@ -63,6 +70,8 @@ def record(
     actor_user_id: str | None = None,
     target_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    target_id: str | None = None,
+    target_type: str = 'USER',
 ) -> None:
     """Append one audit row.
 
@@ -77,12 +86,13 @@ def record(
             cur.execute(
                 """
                 INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, metadata)
-                VALUES (%s, %s, 'USER', %s, %s)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
                 (
                     actor_user_id,
                     action,
-                    target_user_id,
+                    target_type,
+                    target_id or target_user_id,
                     json.dumps(payload, ensure_ascii=False) if payload else None,
                 ),
             )

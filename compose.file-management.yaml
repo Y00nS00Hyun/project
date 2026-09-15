@@ -1,0 +1,26 @@
+# Opt-in: administrator rename / move of original files.
+#
+# Not part of the default stack. compose.yaml mounts the shared folder
+# read-only and nothing here changes that mount -- ingestion, search, parsing and
+# download keep reading /data/shared. This file adds a second mount of the same
+# host folder, writable, used only by POST /documents/{id}/relocate.
+#
+# Enable by listing both files, for every compose command (the ingestion timer
+# uses `docker compose exec`, which works against whichever stack is running):
+#
+#   COMPOSE_FILE=compose.yaml:compose.file-management.yaml   # in .env
+#   SHARED_FOLDER_GID=<group id allowed to write the shared folder>
+#
+# The backend runs as uid 10001. Renaming a file needs write permission on the
+# directory it leaves and the directory it enters, so the shared folder's
+# directories must be group-writable by SHARED_FOLDER_GID. That is an operator
+# decision about the file server, made outside this file.
+services:
+  backend:
+    environment:
+      DOCUMENT_FILE_MANAGEMENT_ENABLED: "true"
+      SHARED_WRITE_ROOT: /data/shared-write
+    volumes:
+      - ${SHARED_FOLDER_HOST_PATH:?set SHARED_FOLDER_HOST_PATH in .env}:/data/shared-write:rw
+    group_add:
+      - "${SHARED_FOLDER_GID:?set SHARED_FOLDER_GID to the group that may write the shared folder}"

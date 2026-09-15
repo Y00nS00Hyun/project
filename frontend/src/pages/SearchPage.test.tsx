@@ -10,6 +10,8 @@ import {
   makeSearchResponse,
   mockFetch,
   renderAt,
+  SIGNED_IN,
+  SIGNED_IN_ADMIN,
 } from '../test/helpers'
 
 function searchUrls(): string[] {
@@ -335,5 +337,90 @@ describe('SearchPage', () => {
     await waitFor(() => expect(select.options.length).toBeGreaterThan(1))
     expect(select).toHaveValue('2015')
     expect(searchUrls()[0]).toContain('year=2015')
+  })
+})
+
+describe('SearchPage · new folder (administrators)', () => {
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  const DIRECTORIES = { directories: [
+    { path: 'HELLO', name: 'HELLO', depth: 1 },
+    { path: 'HELLO/빈폴더', name: '빈폴더', depth: 2 },
+  ] }
+
+  function stub(auth: object, directories: unknown = DIRECTORIES, post?: () => Response) {
+    const calls: { url: string; method: string; body: unknown }[] = []
+    const routes = mockFetch({
+      ...auth,
+      '/api/v1/admin/directories': directories,
+      ...emptyMetadata,
+      '/api/v1/search': makeSearchResponse([]),
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      if (method === 'POST' && url === '/api/v1/admin/directories' && post) return post()
+      return routes(input, init)
+    }))
+    return calls
+  }
+
+  const count = (calls: { url: string; method: string }[], url: string, method = 'GET') =>
+    calls.filter((c) => c.method === method && c.url.split('?')[0] === url).length
+
+  it('is offered to an administrator while file management is on', async () => {
+    stub(SIGNED_IN_ADMIN)
+    renderAt(<SearchPage />, '/search')
+    expect(await screen.findByRole('button', { name: '+ 새 폴더' })).toBeInTheDocument()
+  })
+
+  it('is not offered to an ordinary user, who never asks for directories', async () => {
+    const calls = stub(SIGNED_IN)
+    renderAt(<SearchPage />, '/search')
+    await screen.findByText('표시할 문서가 없습니다.')
+    expect(screen.queryByRole('button', { name: '+ 새 폴더' })).not.toBeInTheDocument()
+    expect(count(calls, '/api/v1/admin/directories')).toBe(0)
+  })
+
+  it('is not offered while file management is off', async () => {
+    const calls = stub(SIGNED_IN_ADMIN, () =>
+      errorResponse('FEATURE_UNAVAILABLE', '원본 파일 관리 기능이 꺼져 있습니다.', 503))
+    renderAt(<SearchPage />, '/search')
+    await waitFor(() => expect(count(calls, '/api/v1/admin/directories')).toBe(1))
+    expect(screen.queryByRole('button', { name: '+ 새 폴더' })).not.toBeInTheDocument()
+  })
+
+  it('creates a folder, refreshes the directory list, and leaves the sidebar alone', async () => {
+    const calls = stub(SIGNED_IN_ADMIN)
+    renderAt(<SearchPage />, '/search')
+
+    await userEvent.click(await screen.findByRole('button', { name: '+ 새 폴더' }))
+    expect(screen.getByRole('dialog', { name: '새 폴더 만들기' })).toBeInTheDocument()
+    // Empty folders are offered as a location.
+    expect(screen.getByRole('option', { name: /빈폴더/ })).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('위치'), 'HELLO')
+    await userEvent.type(screen.getByLabelText('폴더 이름'), '2026_보고서')
+    await userEvent.click(screen.getByRole('button', { name: '만들기' }))
+
+    expect(await screen.findByText(
+      '폴더가 생성되었습니다. 문서가 추가되면 문서 검색 목록에 표시됩니다.',
+    )).toBeInTheDocument()
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ parent_path: 'HELLO', name: '2026_보고서' })
+    await waitFor(() => expect(count(calls, '/api/v1/admin/directories')).toBe(2))
+    expect(count(calls, '/api/v1/folders')).toBe(1)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('keeps the dialog open and shows the server message when the name is taken', async () => {
+    stub(SIGNED_IN_ADMIN, DIRECTORIES, () =>
+      errorResponse('FOLDER_ALREADY_EXISTS', '같은 이름의 파일 또는 폴더가 이미 존재합니다.', 409))
+    renderAt(<SearchPage />, '/search')
+    await userEvent.click(await screen.findByRole('button', { name: '+ 새 폴더' }))
+    await userEvent.type(screen.getByLabelText('폴더 이름'), 'HELLO')
+    await userEvent.click(screen.getByRole('button', { name: '만들기' }))
+    expect(await screen.findByText('같은 이름의 파일 또는 폴더가 이미 존재합니다.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '새 폴더 만들기' })).toBeInTheDocument()
   })
 })

@@ -181,6 +181,9 @@ export function makeDetail(overrides: Partial<DocumentDetail> = {}): DocumentDet
     },
     // Both document-text features share one capability, so the fixture does too.
     chat: { available: true },
+    location: { file_name: '2026년 AI 문서관리 사업계획서.hwpx', folder_path: 'HELLO', folder_name: 'HELLO' },
+    // Off unless a test is about administrator file actions.
+    file_management: { available: false },
     ...overrides,
   }
 }

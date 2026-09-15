@@ -60,6 +60,11 @@ PREVIEW_ROUTES = {
     ("GET", f"{API_PREFIX}/search/years"),
     # Paragraph-level changes against the previous revision, fetched on demand.
     ("GET", f"{API_PREFIX}/documents/{{document_id}}/diff"),
+    # Administrator rename/move of the original file, feature-gated.
+    ("POST", f"{API_PREFIX}/documents/{{document_id}}/relocate"),
+    # Administrator directory list (includes empty folders) and folder creation.
+    ("GET", f"{API_PREFIX}/admin/directories"),
+    ("POST", f"{API_PREFIX}/admin/directories"),
 }
 
 ALL_ROUTES = EXPECTED_ROUTES | AUTH_ROUTES | PREVIEW_ROUTES
@@ -108,16 +113,25 @@ class TestRoutes:
             f'{API_PREFIX}/chat/sessions',
             f'{API_PREFIX}/auth/',
             f'{API_PREFIX}/admin/users',
+            # Creates a folder in the shared folder: not a document, a revision
+            # or a permission, and only for an administrator with the feature on.
+            f'{API_PREFIX}/admin/directories',
         )
+        # The single deliberate exception: an administrator renaming or moving
+        # an original file. It changes where the file is, never its content,
+        # its revisions or its permissions, and is off unless enabled.
+        relocate = f'{API_PREFIX}/documents/{{document_id}}/relocate'
         for path, ops in spec["paths"].items():
             for method in ops:
                 assert method.upper() not in {"PUT", "PATCH", "DELETE"}, (
                     f"{method.upper()} {path} must not exist"
                 )
                 if method.upper() == 'POST':
+                    assert 'permission' not in path
+                    if path == relocate:
+                        continue
                     assert path.startswith(allowed_post_prefixes), path
                     assert '/documents' not in path
-                    assert 'permission' not in path
 
     def test_document_delete_route_is_absent(self, spec):
         assert "delete" not in spec["paths"].get(f"{API_PREFIX}/documents/{{document_id}}", {})
@@ -189,6 +203,9 @@ class TestErrorContract:
             # is configured off is not a server fault, and reporting it as one
             # leaves a client with nothing better to do than retry forever.
             "FEATURE_UNAVAILABLE",
+            # Administrator relocation of an original file.
+            "FILE_ALREADY_EXISTS", "DOCUMENT_PROCESSING", "SOURCE_FILE_MISSING",
+            "FOLDER_ALREADY_EXISTS",
         }
 
     def test_each_code_maps_to_its_documented_status(self):
@@ -445,9 +462,10 @@ class TestFolderContract:
         }
         assert v1_routes <= actual
         # 11 through v1.2, the eleven v1.3 authentication routes, the
-        # extracted-text preview, the year filter's choices, and the revision
-        # comparison.
-        assert len(actual) == len(ALL_ROUTES) == 25
+        # extracted-text preview, the year filter's choices, the revision
+        # comparison, administrator relocation, and the administrator
+        # directory list and folder creation.
+        assert len(actual) == len(ALL_ROUTES) == 28
 
     def test_a_folder_carries_a_canonical_path_and_a_display_name(self, spec):
         """Separate fields, because for a legacy folder they differ entirely.

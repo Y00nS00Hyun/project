@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .dependencies import app_env, is_production
 from .errors import ApiError
-from .routers import auth, chat, documents, folders, metadata, search, years
+from .routers import admin_directories, auth, chat, documents, folders, metadata, search, years
 
 logger = logging.getLogger("api")
 
@@ -157,6 +157,7 @@ def create_app() -> FastAPI:
     # before it can reach anything that requires being logged in.
     app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(auth.admin_router, prefix=API_PREFIX)
+    app.include_router(admin_directories.router, prefix=API_PREFIX)
     app.include_router(search.router, prefix=API_PREFIX)
     app.include_router(documents.router, prefix=API_PREFIX)
     app.include_router(metadata.router, prefix=API_PREFIX)

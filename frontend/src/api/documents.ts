@@ -1,6 +1,8 @@
-import { getFile, getJson, type DownloadedFile, type RequestOptions } from './client'
+import { getFile, getJson, postJson, type DownloadedFile, type RequestOptions } from './client'
 import type {
   DocumentDetail,
+  RelocateRequest,
+  RelocateResponse,
   RevisionDiffResponse,
   RevisionListResponse,
   TextPreviewResponse,
@@ -78,4 +80,15 @@ export function fetchDocumentDiff(
   options: RequestOptions = {},
 ): Promise<RevisionDiffResponse> {
   return getJson<RevisionDiffResponse>(`/documents/${encodeURIComponent(documentId)}/diff`, options)
+}
+
+/** Administrator rename and/or move of the original file. */
+export function relocateDocument(
+  documentId: string,
+  body: RelocateRequest,
+  options: RequestOptions = {},
+): Promise<RelocateResponse> {
+  return postJson<RelocateResponse>(
+    `/documents/${encodeURIComponent(documentId)}/relocate`, body, options,
+  )
 }

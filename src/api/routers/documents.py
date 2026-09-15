@@ -1,7 +1,9 @@
-"""Document detail, revision history and download.
+"""Document detail, revision history, download, and administrator relocation.
 
-There is no POST/PUT/PATCH/DELETE here and there never will be in v1: the
-shared folder is the source of truth, and the system does not modify it.
+The shared folder is the source of truth. The one route here that changes it is
+POST /relocate: an administrator renaming or moving an original file, only with
+DOCUMENT_FILE_MANAGEMENT_ENABLED and a separate write mount. There is no
+PUT/PATCH/DELETE, no upload and no content editing.
 """
 
 from __future__ import annotations
@@ -12,16 +14,26 @@ import psycopg
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse
 
-from ..dependencies import AuthenticatedUser, get_config, get_connection, require_user
+from ..dependencies import (
+    AuthenticatedUser, connection_factory, get_config, get_connection,
+    require_admin_user, require_user,
+)
 from ..document_service import (
     DocumentNotDownloadable,
     DocumentNotVisible,
     DocumentService,
 )
-from ..errors import document_not_found, not_downloadable, validation_error
+from ..errors import ApiError, document_not_found, not_downloadable, validation_error
+from ..file_management import (
+    DestinationExists, DocumentBusy, DocumentNotRelocatable, InvalidRelocation,
+    RelocationUnavailable, SourceFileMissing, file_management_available, load_config, relocate,
+)
+from ..schemas.common import ErrorResponse
 from ..schemas.documents import (
     DocumentDetailOut,
     RevisionListResponse,
+    RelocateRequest,
+    RelocateResponse,
     RevisionDiffResponse,
     RevisionOut,
     TextPreviewResponse,
@@ -54,6 +66,9 @@ def get_document(
         # 404 for both "absent" and "not permitted": 403 would confirm the
         # document exists (contract section 3.3).
         raise document_not_found() from exc
+    detail["file_management"] = {
+        "available": file_management_available(user.user_id, connection_factory()),
+    }
     return DocumentDetailOut(**detail)
 
 
@@ -167,6 +182,48 @@ def revision_diff(
         raise document_not_found() from exc
     # Not logged: the payload is document body text.
     return RevisionDiffResponse(**payload)
+
+
+@router.post(
+    "/{document_id}/relocate",
+    response_model=RelocateResponse,
+    summary="원본 파일 이름 변경 / 폴더 이동 (관리자)",
+    responses={code: {"model": ErrorResponse} for code in (403, 409, 503)},
+)
+def relocate_document(
+    request: Request,
+    document_id: str,
+    body: RelocateRequest,
+    user: AuthenticatedUser = Depends(require_admin_user),
+) -> RelocateResponse:
+    """Rename and/or move the original file. Administrators only, feature-gated.
+
+    Not content editing: the bytes are untouched, so no revision is created and
+    the document keeps its id, revisions, permissions and every reference.
+    """
+    if request.query_params:
+        raise validation_error("알 수 없는 query parameter가 있습니다.")
+    config = load_config()
+    if not config.usable:
+        raise ApiError("FEATURE_UNAVAILABLE", "원본 파일 관리 기능이 꺼져 있습니다.")
+    try:
+        result = relocate(
+            connection_factory(), config, user.user_id, document_id,
+            filename=body.filename, folder_path=body.folder_path,
+        )
+    except DocumentNotRelocatable:
+        raise document_not_found() from None
+    except InvalidRelocation as exc:
+        raise validation_error(exc.message) from None
+    except DestinationExists as exc:
+        raise ApiError("FILE_ALREADY_EXISTS", exc.message) from None
+    except DocumentBusy as exc:
+        raise ApiError("DOCUMENT_PROCESSING", exc.message) from None
+    except SourceFileMissing as exc:
+        raise ApiError("SOURCE_FILE_MISSING", exc.message) from None
+    except RelocationUnavailable as exc:
+        raise ApiError("FEATURE_UNAVAILABLE", exc.message) from None
+    return RelocateResponse(**result)
 
 
 @router.get("/{document_id}/download", summary="원본 다운로드")

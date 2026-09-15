@@ -3,6 +3,7 @@ import { fetchFolders } from '../api/folders'
 import { fetchTags } from '../api/metadata'
 import { fetchSearchYears, searchDocuments } from '../api/search'
 import { AppNav } from '../components/AppNav'
+import { CreateFolderAction } from '../components/CreateFolderAction'
 import { Filters } from '../components/Filters'
 import { FolderTree, TOP_LEVEL_LABEL } from '../components/FolderTree'
 import { Pagination } from '../components/Pagination'
@@ -91,6 +92,7 @@ export function SearchPage() {
               </span>
             </button>
           </div>
+          {sidebarOpen && <CreateFolderAction />}
           {sidebarOpen && (
             folders.error ? (
               <ErrorView error={folders.error} />

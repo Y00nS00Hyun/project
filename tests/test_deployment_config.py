@@ -560,3 +560,30 @@ class TestBackupTimer(TestIngestionTimer):
         for timer in ("docsearch-ingest.timer", "docsearch-backup.timer"):
             assert f"enable --now {timer}" in install, timer
             assert f"disable --now {timer}" in uninstall, timer
+
+
+class TestFileManagementMounts:
+    """The read-only mount stays read-only; writing exists only in the opt-in file."""
+
+    def base(self) -> str:
+        return (ROOT / "compose.yaml").read_text()
+
+    def override(self) -> str:
+        return (ROOT / "compose.file-management.yaml").read_text()
+
+    def test_the_default_stack_mounts_the_shared_folder_read_only(self):
+        assert ":/data/shared:ro" in self.base()
+        assert "shared-write" not in "\n".join(
+            line for line in self.base().splitlines() if not line.strip().startswith("#")
+        )
+        assert "DOCUMENT_FILE_MANAGEMENT_ENABLED" not in self.base()
+
+    def test_the_override_adds_a_separate_writable_mount_and_the_flag(self):
+        override = self.override()
+        assert ":/data/shared-write:rw" in override
+        assert 'DOCUMENT_FILE_MANAGEMENT_ENABLED: "true"' in override
+        assert "SHARED_WRITE_ROOT: /data/shared-write" in override
+        assert "group_add" in override
+
+    def test_the_override_does_not_touch_the_read_only_mount(self):
+        assert ":/data/shared:" not in self.override()

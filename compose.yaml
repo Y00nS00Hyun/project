@@ -132,8 +132,10 @@ services:
       # Same-origin through nginx, so no browser origin needs allowing.
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
     volumes:
-      # Read-only, always. The system is a reader of the shared folder: it must
-      # not be able to modify, delete, rename or move an original document.
+      # Read-only, always. Ingestion, search, parsing and download read here and
+      # can never modify, delete, rename or move an original document. The one
+      # exception -- administrator rename/move -- uses a separate writable mount
+      # that exists only with compose.file-management.yaml.
       - ${SHARED_FOLDER_HOST_PATH:?set SHARED_FOLDER_HOST_PATH in .env}:/data/shared:ro
       # Pre-populated model cache, also read-only.
       - ${EMBEDDING_CACHE_HOST_PATH:?set EMBEDDING_CACHE_HOST_PATH in .env}:/opt/model-cache:ro

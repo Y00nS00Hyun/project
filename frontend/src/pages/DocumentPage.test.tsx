@@ -735,3 +735,114 @@ describe('DocumentPage revision diff', () => {
     expect(diffCalls()).toHaveLength(1)
   })
 })
+
+describe('DocumentPage file management', () => {
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  const FOLDERS = [
+    { path: 'HELLO', name: 'HELLO', parent_path: null, depth: 1, document_count: 2 },
+    { path: '사업B', name: '사업B', parent_path: null, depth: 1, document_count: 1 },
+  ]
+
+  function stub(detail: unknown, relocate: unknown = undefined) {
+    const calls: { url: string; method: string; body: unknown }[] = []
+    const routes = mockFetch({
+      ...NO_CHAT_SESSIONS,
+      '/api/v1/admin/directories': { directories: [
+        ...FOLDERS.map(({ path, name, depth }) => ({ path, name, depth })),
+        { path: '사업B/빈폴더', name: '빈폴더', depth: 2 },
+      ] },
+      '/api/v1/folders': { items: FOLDERS, total_documents: 3, top_level_documents: 0 },
+      '/api/v1/documents/doc-1/relocate': relocate ?? {},
+      '/api/v1/documents/doc-1/revisions': revisionsResponse(),
+      '/api/v1/documents/doc-1': detail,
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), method: init?.method ?? 'GET',
+        body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      return routes(input, init)
+    }))
+    return calls
+  }
+
+  const ADMIN_DETAIL = makeDetail({ file_management: { available: true } })
+  const relocated = (overrides = {}) => ({
+    changed: true, renamed: false, moved: false, title: 'x',
+    location: { file_name: '2026년 AI 문서관리 사업계획서.hwpx', folder_path: 'HELLO', folder_name: 'HELLO' },
+    previous_location: { file_name: '2026년 AI 문서관리 사업계획서.hwpx', folder_path: 'HELLO', folder_name: 'HELLO' },
+    ...overrides,
+  })
+
+  it('shows no file actions to someone who may not use them', async () => {
+    stub(makeDetail())
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await screen.findByRole('heading', { name: makeDetail().title })
+    expect(screen.queryByRole('button', { name: /문서 관리/ })).not.toBeInTheDocument()
+  })
+
+  it('renames through a dialog, then reloads the detail and says so', async () => {
+    const calls = stub(ADMIN_DETAIL, relocated({ renamed: true,
+      location: { file_name: '최종.hwpx', folder_path: 'HELLO', folder_name: 'HELLO' } }))
+    renderAt(<DocumentPage />, PATH, ROUTE)
+
+    await userEvent.click(await screen.findByRole('button', { name: /문서 관리/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: '이름 변경' }))
+    const dialog = screen.getByRole('dialog', { name: '파일명 변경' })
+    expect(dialog).toHaveTextContent('2026년 AI 문서관리 사업계획서.hwpx')
+    const input = screen.getByLabelText('새 파일명')
+    await userEvent.clear(input)
+    await userEvent.type(input, '최종.hwpx')
+    await userEvent.click(screen.getByRole('button', { name: '변경' }))
+
+    expect(await screen.findByText('파일명이 변경되었습니다.')).toBeInTheDocument()
+    const post = calls.find((c) => c.method === 'POST')
+    expect(post?.url).toBe('/api/v1/documents/doc-1/relocate')
+    expect(post?.body).toEqual({ filename: '최종.hwpx' })
+    await waitFor(() => expect(
+      calls.filter((c) => c.method === 'GET' && c.url === '/api/v1/documents/doc-1'),
+    ).toHaveLength(2))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('moves to an existing folder chosen from the folder list', async () => {
+    const calls = stub(ADMIN_DETAIL, relocated({ moved: true,
+      location: { file_name: 'a.hwpx', folder_path: '사업B', folder_name: '사업B' } }))
+    renderAt(<DocumentPage />, PATH, ROUTE)
+
+    await userEvent.click(await screen.findByRole('button', { name: /문서 관리/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: '폴더 이동' }))
+    const dialog = screen.getByRole('dialog', { name: '폴더 이동' })
+    expect(dialog).toHaveTextContent('HELLO')
+    const select = screen.getByLabelText('이동 위치')
+    await waitFor(() => expect(select).toBeEnabled())
+    // An empty folder is a valid destination: the list is the filesystem.
+    expect(screen.getByRole('option', { name: /빈폴더/ })).toBeInTheDocument()
+    await userEvent.selectOptions(select, '사업B')
+    await userEvent.click(screen.getByRole('button', { name: '이동' }))
+
+    expect(await screen.findByText('문서가 HELLO → 사업B로 이동되었습니다.')).toBeInTheDocument()
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ folder_path: '사업B' })
+  })
+
+  it('keeps the dialog open and shows the server message on a conflict', async () => {
+    stub(ADMIN_DETAIL, () => errorResponse('FILE_ALREADY_EXISTS', '같은 이름의 파일이 이미 존재합니다.', 409))
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await userEvent.click(await screen.findByRole('button', { name: /문서 관리/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: '이름 변경' }))
+    await userEvent.click(screen.getByRole('button', { name: '변경' }))
+
+    expect(await screen.findByText('같은 이름의 파일이 이미 존재합니다.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '파일명 변경' })).toBeInTheDocument()
+  })
+
+  it('sends nothing when cancelled', async () => {
+    const calls = stub(ADMIN_DETAIL)
+    renderAt(<DocumentPage />, PATH, ROUTE)
+    await userEvent.click(await screen.findByRole('button', { name: /문서 관리/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: '이름 변경' }))
+    await userEvent.click(screen.getByRole('button', { name: '취소' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+  })
+})

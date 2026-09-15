@@ -4,6 +4,7 @@ import { ApiClientError } from '../api/client'
 import { downloadDocument, fetchDocument, fetchRevisions } from '../api/documents'
 import { AppNav } from '../components/AppNav'
 import { DocumentChat } from '../components/DocumentChat'
+import { DocumentFileActions, TOP_LEVEL_FOLDER_LABEL } from '../components/DocumentFileActions'
 import { DocumentSummary } from '../components/DocumentSummary'
 import { RevisionDiff } from '../components/RevisionDiff'
 import { RevisionList } from '../components/RevisionList'
@@ -22,11 +23,19 @@ function DocumentContent({ documentId }: { documentId: string }) {
   const [revisionPage, setRevisionPage] = useState(1)
   const [historyOpen, setHistoryOpen] = useState(false)
 
+  // Bumped after a rename or move so the detail is fetched again from the
+  // server rather than patched locally.
+  const [detailVersion, setDetailVersion] = useState(0)
+  const [relocationNotice, setRelocationNotice] = useState<string | null>(null)
   const detail = useAsyncResource(
     (signal) => fetchDocument(documentId, { signal }),
-    [documentId],
+    [documentId, detailVersion],
     Boolean(documentId),
   )
+  // Keeps the page on screen while that refetch is in flight, instead of
+  // replacing it with a loading state for the moment it takes.
+  const lastDetail = useRef(detail.data)
+  if (detail.data) lastDetail.current = detail.data
   const revisions = useAsyncResource(
     (signal) => fetchRevisions(documentId, revisionPage, 20, { signal }),
     [documentId, revisionPage],
@@ -79,6 +88,8 @@ function DocumentContent({ documentId }: { documentId: string }) {
     }
   }, [documentId, detail.data?.title, detail.data?.file_type])
 
+  const shownDetail = detail.data ?? lastDetail.current
+
   if (detail.error) {
     // 404 covers both "no such document" and "no permission" -- the backend
     // returns the same status for each so existence is not disclosed. The UI
@@ -101,7 +112,7 @@ function DocumentContent({ documentId }: { documentId: string }) {
     )
   }
 
-  if (!detail.data) {
+  if (!shownDetail) {
     return (
       <main className="page">
         <BackLink />
@@ -110,7 +121,7 @@ function DocumentContent({ documentId }: { documentId: string }) {
     )
   }
 
-  const doc = detail.data
+  const doc = shownDetail
   const current = doc.current_revision
   const latest = doc.latest_revision
   // Requires a current revision, not merely a different one. A document whose
@@ -150,9 +161,29 @@ function DocumentContent({ documentId }: { documentId: string }) {
           {!doc.downloadable && (
             <p className="state-hint">현재 이 문서의 원본을 내려받을 수 없습니다.</p>
           )}
+          {doc.file_management?.available && doc.location && (
+            <DocumentFileActions
+              documentId={doc.document_id}
+              location={doc.location}
+              onRelocated={(result) => {
+                const from = result.previous_location.folder_name ?? TOP_LEVEL_FOLDER_LABEL
+                const to = result.location.folder_name ?? TOP_LEVEL_FOLDER_LABEL
+                setRelocationNotice(
+                  !result.changed ? '변경된 내용이 없습니다.'
+                    : result.renamed && result.moved
+                      ? `파일명이 변경되고 문서가 ${from} → ${to}로 이동되었습니다.`
+                      : result.renamed ? '파일명이 변경되었습니다.'
+                        : `문서가 ${from} → ${to}로 이동되었습니다.`,
+                )
+                if (result.changed) setDetailVersion((value) => value + 1)
+              }}
+            />
+          )}
           {downloadError && <ErrorView error={downloadError} />}
         </div>
       </header>
+
+      {relocationNotice && <p className="notice" role="status">{relocationNotice}</p>}
 
       {/* No department row. The organisation does not use departments, so the
           field could only ever read "-" or name something nobody navigates by.
